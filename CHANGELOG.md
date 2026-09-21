@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 — 2026-09-22
+
+- Check update now says "Up to date" when there is nothing newer to install,
+  instead of reporting an error.
+- A newer version is offered with a confirmation step: `Enter` installs,
+  `G0` dismisses it for later.
+
 ## 0.5.0 — 2026-09-22
 
 First public release.

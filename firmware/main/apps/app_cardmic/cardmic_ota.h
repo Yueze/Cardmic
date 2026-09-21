@@ -33,7 +33,8 @@ typedef enum {
 
 // Both run in a background task and return immediately. Needs Wi-Fi.
 void cardmic_ota_check(void);
-void cardmic_ota_install(void);
+void cardmic_ota_install(void);  // only after a check found a newer version
+void cardmic_ota_dismiss(void);  // "later": forget an available update
 
 cardmic_ota_state_t cardmic_ota_state(void);
 const char *cardmic_ota_latest(void);  // e.g. "0.5.1"; "" before a check

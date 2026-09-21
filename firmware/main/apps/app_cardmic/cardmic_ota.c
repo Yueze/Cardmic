@@ -26,6 +26,7 @@ static volatile cardmic_ota_state_t s_state = CARDMIC_OTA_IDLE;
 static volatile int s_progress;
 static char s_latest[32];
 static char s_error[32];
+static volatile int s_http_status;  // last HTTP status seen, after redirects
 
 static void fail(const char *msg)
 {
@@ -48,6 +49,14 @@ static esp_err_t http_init(esp_http_client_handle_t client)
     return esp_http_client_set_header(client, "User-Agent", "cardmic");
 }
 
+static esp_err_t http_event(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_HEADER || evt->event_id == HTTP_EVENT_ON_FINISH) {
+        s_http_status = esp_http_client_get_status_code(evt->client);
+    }
+    return ESP_OK;
+}
+
 // Opens the download and reads the image header. On ESP_OK the caller owns *out.
 static esp_err_t open_latest(esp_https_ota_handle_t *out, esp_app_desc_t *desc)
 {
@@ -59,7 +68,9 @@ static esp_err_t open_latest(esp_https_ota_handle_t *out, esp_app_desc_t *desc)
         .buffer_size_tx = 2048,  // and the signed asset URL is ~1 KB long
         .max_redirection_count = 5,
         .keep_alive_enable = true,
+        .event_handler = http_event,
     };
+    s_http_status = 0;
     esp_https_ota_config_t ota = {.http_config = &http, .http_client_init_cb = http_init};
     esp_err_t err = esp_https_ota_begin(&ota, out);
     if (err != ESP_OK) {
@@ -81,7 +92,17 @@ static void ota_task(void *arg)
     esp_app_desc_t desc;
 
     if (open_latest(&h, &desc) != ESP_OK) {
-        fail(install ? "DOWNLOAD FAILED" : "NO RELEASE FOUND");
+        if (!install && s_http_status == 404) {
+            // Nothing published (yet) that this device could install: the
+            // running firmware is the newest there is.
+            strlcpy(s_latest, esp_app_get_description()->version, sizeof(s_latest));
+            s_state = CARDMIC_OTA_UP_TO_DATE;
+        } else if (s_http_status == 0) {
+            fail("NO CONNECTION TO GITHUB");
+        } else {
+            snprintf(s_error, sizeof(s_error), "CHECK FAILED (HTTP %d)", s_http_status);
+            s_state = CARDMIC_OTA_FAILED;
+        }
         vTaskDelete(NULL);
         return;
     }
@@ -140,6 +161,13 @@ void cardmic_ota_install(void)
 {
     if (s_state != CARDMIC_OTA_AVAILABLE) return;
     start(true);
+}
+
+void cardmic_ota_dismiss(void)
+{
+    if (s_state == CARDMIC_OTA_AVAILABLE || s_state == CARDMIC_OTA_UP_TO_DATE || s_state == CARDMIC_OTA_FAILED) {
+        s_state = CARDMIC_OTA_IDLE;
+    }
 }
 
 cardmic_ota_state_t cardmic_ota_state(void) { return s_state; }

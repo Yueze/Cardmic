@@ -393,6 +393,7 @@ bool go_back()
             break;  // busy; ignore
         case Page::About:
             if (cardmic_ota_state() != CARDMIC_OTA_DOWNLOADING && cardmic_ota_state() != CARDMIC_OTA_DONE) {
+                cardmic_ota_dismiss();
                 s_page = Page::Settings;
             }
             break;
@@ -916,10 +917,10 @@ void draw_about()
             text(&fonts::Font0, C_TEXT, 2, y, "CHECKING GITHUB...");
             break;
         case CARDMIC_OTA_UP_TO_DATE:
-            text(&fonts::Font0, C_ACCENT, 2, y, "UP TO DATE");
+            text(&fonts::Font0, C_ACCENT, 2, y, ("UP TO DATE  V" + std::string(app->version) + " IS THE LATEST").c_str());
             break;
         case CARDMIC_OTA_AVAILABLE:
-            text(&fonts::Font0, C_CYAN, 2, y, ("V" + latest + " AVAILABLE").c_str());
+            text(&fonts::Font0, C_CYAN, 2, y, ("V" + latest + " AVAILABLE. INSTALL NOW?").c_str());
             break;
         case CARDMIC_OTA_DOWNLOADING: {
             int pct = cardmic_ota_progress();
@@ -939,7 +940,7 @@ void draw_about()
     }
     switch (cardmic_ota_state()) {
         case CARDMIC_OTA_AVAILABLE:
-            hint_row({{"ENT", "INSTALL"}, {"G0", "BACK"}});
+            hint_row({{"ENT", "INSTALL"}, {"G0", "LATER"}});
             break;
         case CARDMIC_OTA_CHECKING:
         case CARDMIC_OTA_DOWNLOADING:

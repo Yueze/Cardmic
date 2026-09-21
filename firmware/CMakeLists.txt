@@ -25,5 +25,5 @@ foreach(opt
 endforeach()
 
 # Single source of the firmware version (shown in About, compared by OTA).
-set(PROJECT_VER "0.5.0")
+set(PROJECT_VER "0.5.1")
 project(cardputer-adv)
