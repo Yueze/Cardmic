@@ -6,9 +6,10 @@ little-endian unless stated otherwise. The reference implementations are
 (device) and [`client/core/src/protocol.rs`](../client/core/src/protocol.rs)
 (desktop).
 
-> **No encryption yet.** Anyone on the same network who sends discovery first
-> can receive the audio. Use wireless mode on networks you trust. Pairing is
-> on the roadmap; the `CPM2` framing below reserves room for it.
+> **Pairing.** With Settings > Pairing off (the default), anyone on the same
+> network who sends discovery first can receive the audio, unencrypted. With
+> it on, only computers that know the device's pairing code get audio, and
+> it is encrypted with AES-128-GCM. See section 3.
 
 ## 1. Discovery and keepalive
 
@@ -19,7 +20,8 @@ CPADV_MIC_DISCOVER_V1
 ```
 
 (no trailing NUL) to UDP 41234: to each interface's subnet broadcast address,
-to `255.255.255.255`, and optionally to a known device address.
+to `255.255.255.255`, and optionally to a known device address. A paired
+client sends the 45-byte v2 form instead (section 3).
 
 Two rules matter as much as the byte layout:
 
@@ -46,9 +48,7 @@ CPM1 (656 bytes)
 16..    samples       i16[320]
 ```
 
-`CPM2` (672 bytes) is reserved for pairing. It keeps the same 16-byte header
-with magic `"CPM2"` and version 2, then a 16-byte authentication tag, then the
-samples. The client already parses it; the firmware does not send it yet.
+With pairing on, audio is sent as `CPM2` instead (section 3).
 
 The client orders packets by sequence number, drops duplicates and late
 packets, fills a gap of up to 5 lost packets (100 ms) with silence, and
@@ -56,7 +56,57 @@ resynchronises after a longer gap.
 
 When the device is muted it keeps streaming silence, so the session stays up.
 
-## 3. Screenshots
+## 3. Pairing and encryption
+
+The device shows a 12-character code in Settings > Pairing, e.g.
+`7K2M-9QXB-4TPA` (Crockford base32: no I, L, O or U; 60 bits from the
+hardware RNG). The user runs `cardmic pair 7K2M-9QXB-4TPA` once. Both sides
+derive:
+
+```
+k = PBKDF2-HMAC-SHA256(code without dashes, salt "cardmic/pair/v1", 20000 rounds, 32 bytes)
+enc_key = k[0..16]    AES-128-GCM key for audio
+mac_key = k[16..32]   HMAC-SHA256 key for discovery
+```
+
+The slow derivation and the 60-bit code mean a recording of the traffic
+cannot practically be brute-forced back to the code.
+
+**Discovery v2** (45 bytes), sent by paired clients:
+
+```
+ 0..20  "CPADV_MIC_DISCOVER_V2"
+21..28  nonce      8 bytes, varies per packet
+29..44  tag        HMAC-SHA256(mac_key, bytes 0..28), first 16 bytes
+```
+
+With pairing on, the device ignores v1 discovery and v2 discovery with a bad
+tag (and shows "UNPAIRED PC" briefly). With pairing off it accepts both
+forms and streams `CPM1`.
+
+**CPM2** (672 bytes), encrypted audio:
+
+```
+ 0.. 3  magic         "CPM2"
+ 4      version       2
+ 5      flags         0
+ 6.. 7  sample_count  320
+ 8..11  sequence      u32
+12..15  session       u32, random for each new receiver session
+16..31  tag           AES-GCM tag
+32..    ciphertext    AES-128-GCM(enc_key) of i16[320]
+
+nonce (12 bytes)  = session (LE) | sequence (LE) | 00 00 00 00
+associated data   = bytes 0..15 (the header)
+```
+
+A fresh random session id per receiver keeps nonces unique although the
+sequence restarts at 0 for each session.
+
+Test vectors for code `7K2M9QXB4TPA` are in
+[`client/core/src/pairing.rs`](../client/core/src/pairing.rs).
+
+## 4. Screenshots
 
 Used to produce the pictures in the docs.
 
@@ -66,10 +116,12 @@ Request, from any UDP port:
 CARDMIC_SCREENSHOT [page]
 ```
 
-`page` is optional: `main`, `settings`, `info` or `about`. With a page, the
-device renders that page just for the picture, with placeholder network
-details (so no real SSID or address ends up in a screenshot), then returns to
-where it was.
+`page` is optional: `main`, `settings`, `info`, `pairing` or `about`. With a
+page, the device renders that page just for the picture, with placeholder
+network details and a sample pairing code (so no real SSID, address or code
+ends up in a screenshot), then returns to where it was. The pairing page is
+never captured with its real code, and screenshots are disabled entirely
+while pairing is on.
 
 The device answers from an ephemeral port to the requester with one packet
 per two rows of the full 240x135 screen:
@@ -86,7 +138,7 @@ per two rows of the full 240x135 screen:
 
 `cardmic screenshot DEVICE_IP [--page NAME]` implements the client side.
 
-## 4. Firmware updates
+## 5. Firmware updates
 
 Not a UDP protocol, but part of the contract with the device. The device's
 About > Check update opens

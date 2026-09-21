@@ -39,6 +39,14 @@ impl Verdict {
     }
 }
 
+/// Buffer under/overruns are routine while two streams start up (WASAPI
+/// reports them as errors); only real failures are worth printing.
+fn report(e: cpal::Error, side: &str) {
+    if !matches!(e.kind(), cpal::ErrorKind::Xrun) {
+        eprintln!("probe {side} stream error: {e}");
+    }
+}
+
 /// Play a tone into the candidate's output side and measure RMS on its input side.
 pub fn loopback_rms(host: &cpal::Host, candidate: &Candidate) -> Verdict {
     match measure(host, &candidate.output, &candidate.input) {
@@ -78,7 +86,7 @@ fn measure(host: &cpal::Host, output: &str, input: &str) -> Result<f32, String> 
                 }
                 count_cb.fetch_add(data.len() as u64, Ordering::Relaxed);
             },
-            |e| eprintln!("probe input stream error: {e}"),
+            |e| report(e, "input"),
             None,
         )
         .map_err(|e| format!("build input stream: {e}"))?;
@@ -94,7 +102,7 @@ fn measure(host: &cpal::Host, output: &str, input: &str) -> Result<f32, String> 
                     frame.fill(v);
                 }
             },
-            |e| eprintln!("probe output stream error: {e}"),
+            |e| report(e, "output"),
             None,
         )
         .map_err(|e| format!("build output stream: {e}"))?;

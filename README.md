@@ -40,6 +40,8 @@ use two ways:
 | **Wireless mode** | UDP streaming on the local network, 20 ms packets, loss concealment, automatic discovery. |
 | **Lives in the stock firmware** | Installed as one more app in M5Stack's launcher. Nothing else on the device changes. |
 | **On-device setup** | Scan and join Wi-Fi with the built-in keyboard. No phone app, no config files. |
+| **Hold to talk** | Over USB the Cardputer is also a one-key keyboard: hold Space to hold your dictation app's shortcut. [More](docs/talk-key.md) |
+| **Private by pairing** | Turn on pairing, type the code shown on screen into the client once, and wireless audio is encrypted (AES-128-GCM) for that computer only. |
 | **Live spectrogram** | 100 Hz – 8 kHz heat map, one column per 10 ms, the last 2 seconds on screen, plus a segmented level meter with peak hold. |
 | **Clean signal path** | ES8311 codec at +30 dB PGA, DC removal, 100 Hz high-pass (4th order), three gain steps. |
 | **Updates over Wi-Fi** | Checks GitHub Releases from the device and installs new versions, with automatic rollback. |
@@ -65,9 +67,11 @@ Network details in the captures are placeholders.</sub>
 
 ## Quick start
 
-**1. Install the firmware (once).** Download `cardmic-0.5.0-full.bin` from the
-[latest release](https://github.com/Yueze/Cardmic/releases/latest) and flash it
-over USB. Step-by-step instructions: [docs/flashing.md](docs/flashing.md).
+**1. Install the firmware (once).** Open the
+**[browser installer](https://yueze.github.io/Cardmic/)** in Chrome or Edge,
+plug in the Cardputer and click Install. Or flash the `-full.bin` from the
+[latest release](https://github.com/Yueze/Cardmic/releases/latest) with
+esptool: [docs/flashing.md](docs/flashing.md).
 
 **2. Use it over USB.** Open **Cardmic** in the launcher, plug the Cardputer
 into your computer, and choose **Cardmic Microphone** as the input.
@@ -80,8 +84,10 @@ cardmic doctor   # finds a working loopback device
 cardmic run      # receives the stream and plays it into that device
 ```
 
-Then choose the loopback device (for example **BlackHole 2ch**) as the
-microphone in your app. Details: [macOS](docs/macos.md) · [Windows](docs/windows.md).
+Then choose the microphone the client names (**BlackHole 2ch** on a Mac,
+**CABLE Output** on Windows) in your app. For privacy, turn on
+Settings > Pairing and run `cardmic pair CODE` once. Details:
+[macOS](docs/macos.md) · [Windows](docs/windows.md).
 
 ## What your computer needs
 
@@ -99,6 +105,8 @@ work instead of BlackHole or VB-CABLE; `cardmic doctor` tests each one.
 |---|---|---|
 | `S` or `Enter` | Main | Open settings |
 | `M` | Main | Mute / unmute (the stream keeps running, silent) |
+| `Space` (hold) | Main | Hold to talk, when a talk key is set |
+| `N` | Pairing | New pairing code (unpairs every computer) |
 | `;` `.` | Lists | Move up / down |
 | `Enter` | Lists | Select |
 | `Tab` | Password | Show / hide |
@@ -159,14 +167,13 @@ cargo run -p cardmic -- run --device 127.0.0.1:41235
 Cardmic is young. What works today, and what is next:
 
 - [x] USB microphone, verified on macOS
-- [x] Wireless streaming with the desktop client, verified on macOS
+- [x] Wireless streaming with the desktop client, verified on macOS and Windows
 - [x] On-device Wi-Fi setup, settings, over-the-air updates
-- [ ] Pairing and encryption for wireless mode. Until then the stream is
-      unencrypted: use it on networks you trust.
-- [ ] Voice keyboard mode: hold a key to talk to your dictation app (USB HID +
-      audio)
-- [ ] A registered USB product ID (the firmware uses a development ID for now)
-- [ ] Browser-based flashing and an M5Burner listing
+- [x] Pairing and encryption for wireless mode (off by default; turn it on in Settings > Pairing)
+- [x] Hold-to-talk key for dictation apps (USB keyboard + microphone)
+- [x] Browser installer
+- [ ] A registered USB vendor/product ID (the firmware uses a development ID for now)
+- [ ] An M5Burner listing
 - [ ] Signed and notarized desktop builds
 
 Issues and pull requests are welcome.

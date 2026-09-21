@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 — 2026-09-22
+
+- **Pairing and encryption.** Settings > Pairing shows a 12-character code;
+  `cardmic pair CODE` stores it on the computer. With pairing on, the device
+  only streams to computers that know the code, and audio is encrypted with
+  AES-128-GCM (hardware-accelerated on the ESP32-S3). Off by default, so
+  existing setups keep working after the update.
+- **Hold to talk.** Settings > Talk key turns USB into microphone + keyboard;
+  holding Space holds Ctrl+Option, Ctrl+Win or F13 for dictation apps.
+- **Vivid spectrogram.** Each frequency band is drawn relative to its own
+  noise floor, so steady background noise is black and speech lights up at
+  full saturation. It no longer dims while no computer is listening.
+- **Clear link lights.** USB and WIFI turn lime when linked and breathe while
+  audio is flowing to that computer; amber means connecting or trouble.
+- **Wi-Fi recovers by itself.** A dropped network is noticed and rejoined;
+  a failed join is retried every 30 s.
+- **Windows: VB-CABLE is detected.** The client used to look only for devices
+  with the same name on both sides, which VB-CABLE ("CABLE Input" /
+  "CABLE Output") is not. It now pairs such devices and tells you which one
+  to pick as the microphone.
+- **Browser installer** at https://yueze.github.io/Cardmic/.
+
 ## 0.5.2 — 2026-09-22
 
 - Client: adaptive jitter buffer. Playback starts at 80 ms of buffer and

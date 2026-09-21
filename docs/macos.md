@@ -47,6 +47,24 @@ xattr -d com.apple.quarantine cardmic   # the binary is not notarized yet
 
 Leave `cardmic run` open while you talk. Press Ctrl-C to stop.
 
+### 4. Pair it (recommended)
+
+Out of the box, anyone on the same Wi-Fi who runs the client first could
+receive the audio. Pairing fixes that:
+
+1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on. Note the
+   code, e.g. `7K2M-9QXB-4TPA`.
+2. On the Mac, once: `./cardmic pair 7K2M-9QXB-4TPA`
+3. Run `./cardmic run` as before. It prints `Connected ... (encrypted)`.
+
+Now only computers that know the code receive audio, and it is encrypted.
+`N` on the Pairing page makes a new code, which unpairs every computer.
+
+## Hold to talk
+
+Over USB the Cardputer can also hold a key for your dictation app while you
+hold Space. See [talk-key.md](talk-key.md).
+
 ## Notes
 
 - **Brief stutter in the first seconds.** Wi-Fi on a Mac can pause for about

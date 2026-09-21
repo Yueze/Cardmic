@@ -151,6 +151,7 @@ fn preferred(working: &[Candidate]) -> Option<&Candidate> {
     working
         .iter()
         .find(|c| c.output.contains("BlackHole"))
+        .or_else(|| working.iter().find(|c| c.output.starts_with("CABLE Input")))
         .or_else(|| working.iter().find(|c| c.output.contains("CABLE")))
         .or_else(|| working.first())
 }

@@ -1,8 +1,7 @@
 # Windows setup
 
-> Windows support is new. USB mode uses the USB Audio Class driver built into
-> Windows 10 and later. The wireless client builds and passes its tests on
-> Windows in CI but has had little real-world use yet. Reports are welcome.
+> USB mode uses the USB Audio Class driver built into Windows 10 and later.
+> The wireless client is tested on a Windows 11 PC with VB-CABLE.
 
 ## USB mode
 
@@ -31,7 +30,8 @@ and in a terminal in that folder run:
 .\cardmic.exe doctor
 ```
 
-It tests your audio devices and names the loopback it will use.
+It tests your audio devices and names the loopback it will use: it plays
+into **CABLE Input** and tells you to pick **CABLE Output** as the microphone.
 
 ### 3. Use it
 
@@ -44,6 +44,18 @@ It tests your audio devices and names the loopback it will use.
    microphone.
 
 Leave `cardmic run` open while you talk. Press Ctrl-C to stop.
+
+### 4. Pair it (recommended)
+
+1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on, and note
+   the code.
+2. On the PC, once: `.\cardmic.exe pair 7K2M-9QXB-4TPA` (your code).
+3. Run `.\cardmic.exe run`. It prints `Connected ... (encrypted)`.
+
+## Hold to talk
+
+Over USB the Cardputer can also hold a key for your dictation app while you
+hold Space. See [talk-key.md](talk-key.md).
 
 Networks that block broadcast need the device's address:
 `.\cardmic.exe run --device 192.168.1.42:41234`. The address is shown in

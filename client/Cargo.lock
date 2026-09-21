@@ -103,7 +103,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cardmic"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cardmic-audio",
  "cardmic-core",
@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic-audio"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cardmic-core",
  "cpal",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "aes-gcm",
  "hmac",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic-synth"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cardmic-core",
 ]
