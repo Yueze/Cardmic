@@ -17,7 +17,7 @@ use std::time::Duration;
 // target adapts to the network: every underrun raises it one step, up to a
 // ceiling. A quiet LAN stays near the starting 80 ms. A host whose Wi-Fi
 // pauses periodically settles at a size that absorbs the pauses: a Mac
-// on Wi-Fi measured 100-115 ms gaps about once a second (a Windows laptop on
+// on Wi-Fi measured 100-115 ms gaps about once a second (a Windows PC on
 // the same network: none over 100 ms) and settles at 160 ms within seconds.
 
 /// Starting target, and the floor.
