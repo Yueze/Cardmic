@@ -341,9 +341,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 let rate = stream.sink.sample_rate() as f64;
                 let buffered_ms = stream.queue.buffered() as f64 / rate * 1000.0;
                 print!(
-                    "\r  {} pkts · buffer {:>4.0} ms · concealed {} · resyncs {} · underruns {}   ",
+                    "\r  {} pkts · buffer {:>4.0}/{:.0} ms · concealed {} · resyncs {} · underruns {}   ",
                     stats.packets,
                     buffered_ms,
+                    stream.queue.target() as f64 / rate * 1000.0,
                     stats.concealed,
                     stats.resyncs,
                     stream.queue.underruns()

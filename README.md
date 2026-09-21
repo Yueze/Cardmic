@@ -159,7 +159,7 @@ cargo run -p cardmic -- run --device 127.0.0.1:41235
 Cardmic is young. What works today, and what is next:
 
 - [x] USB microphone, verified on macOS
-- [x] Wireless streaming with the desktop client
+- [x] Wireless streaming with the desktop client, verified on macOS
 - [x] On-device Wi-Fi setup, settings, over-the-air updates
 - [ ] Pairing and encryption for wireless mode. Until then the stream is
       unencrypted: use it on networks you trust.

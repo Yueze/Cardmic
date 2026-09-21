@@ -49,6 +49,14 @@ Leave `cardmic run` open while you talk. Press Ctrl-C to stop.
 
 ## Notes
 
+- **Brief stutter in the first seconds.** Wi-Fi on a Mac can pause for about
+  100 ms roughly once a second, often because of AWDL, the link behind
+  AirDrop and Continuity. `cardmic run` notices and grows its buffer (the
+  status line shows `buffer 155/160 ms`); after that, audio is continuous.
+  For the lowest latency you can turn AWDL off until the next restart with
+  `sudo ifconfig awdl0 down` (AirDrop stops working until it is back on), or
+  put the Mac on Ethernet.
+
 - The first time `cardmic run` starts, macOS may ask to allow incoming network
   connections. Allow it; the audio arrives over UDP.
 - Networks that block broadcast (some office and hotel Wi-Fi) need the

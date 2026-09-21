@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2 — 2026-09-22
+
+- Client: adaptive jitter buffer. Playback starts at 80 ms of buffer and
+  grows 40 ms after each underrun, up to 240 ms, so a Wi-Fi link that pauses
+  periodically (common on Macs) stops stuttering after a few seconds instead
+  of every second. Over-long buffers are trimmed back to the target rather
+  than to near-empty. The status line shows `buffer current/target`.
+- Firmware: version bump only.
+
 ## 0.5.1 — 2026-09-22
 
 - Check update now says "Up to date" when there is nothing newer to install,
