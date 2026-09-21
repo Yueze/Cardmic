@@ -18,21 +18,32 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_private/usb_phy.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "class/hid/hid_device.h"
 #include "tinyusb.h"
 #include "tusb.h"
 
 #define AUDIO_BYTES_PER_SAMPLE CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX
 #define AUDIO_CHANNEL_COUNT CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX
 #define USB_AUDIO_EP_IN 0x81
+#define USB_HID_EP_IN 0x82
 #define USB_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_AUDIO_MIC_ONE_CH_DESC_LEN)
+#define USB_CONFIG_TOTAL_LEN_KB (USB_CONFIG_TOTAL_LEN + TUD_HID_DESC_LEN)
+// Mic-only and mic+keyboard are different USB products: hosts (Windows in
+// particular) cache a device's interfaces per VID/PID.
+#define USB_PID_MIC 0x4011
+#define USB_PID_MIC_KEYBOARD 0x4012
 
 static const char *TAG = "cardmic_usb";
 
 enum {
     ITF_NUM_AUDIO_CONTROL = 0,
     ITF_NUM_AUDIO_STREAMING,
-    ITF_NUM_TOTAL,
+    ITF_NUM_HID,
+    ITF_NUM_TOTAL_KB,
 };
+#define ITF_NUM_TOTAL ITF_NUM_HID
 
 enum {
     STRID_LANGID = 0,
@@ -40,6 +51,7 @@ enum {
     STRID_PRODUCT,
     STRID_SERIAL,
     STRID_AUDIO_INTERFACE,
+    STRID_HID_INTERFACE,
 };
 
 static volatile bool s_installed;
@@ -52,8 +64,9 @@ static uint8_t s_clock_valid = 1;
 static audio_control_range_2_n_t(1) s_volume_range;
 static audio_control_range_4_n_t(1) s_sample_freq_range;
 static char s_usb_serial[13] = "000000000000";
+static bool s_keyboard;  // this session enumerates the talk-key keyboard too
 
-static const tusb_desc_device_t s_device_descriptor = {
+static tusb_desc_device_t s_device_descriptor = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
@@ -64,7 +77,7 @@ static const tusb_desc_device_t s_device_descriptor = {
     // TinyUSB placeholder VID. Replace with an Espressif-allocated PID
     // (VID 0x303A, espressif/usb-pids) before public release.
     .idVendor = 0xCafe,
-    .idProduct = 0x4011,
+    .idProduct = USB_PID_MIC,
     .bcdDevice = 0x0300,
     .iManufacturer = STRID_MANUFACTURER,
     .iProduct = STRID_PRODUCT,
@@ -78,19 +91,39 @@ static const uint8_t s_configuration_descriptor[] = {
                                     AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
 };
 
+// The keyboard interface reuses the stock firmware's HID report descriptor
+// (keyboard as report 1, mouse as report 2): its tud_hid_descriptor_report_cb()
+// is the one linked, and it returns that descriptor for every instance. This
+// copy exists only so the configuration descriptor states the right length.
+static const uint8_t s_hid_report_len_ref[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(HID_ITF_PROTOCOL_KEYBOARD)),
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE)),
+};
+
+static const uint8_t s_configuration_descriptor_kb[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_KB, 0, USB_CONFIG_TOTAL_LEN_KB, 0x00, 100),
+    TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
+                                    AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_len_ref),
+                       USB_HID_EP_IN, 16, 10),
+};
+
 static const char *s_string_descriptor[] = {
     (const char[]){0x09, 0x04},
     "Cardmic",
     "Cardmic Microphone",
     s_usb_serial,
     "Cardmic Microphone",
+    "Cardmic Talk Key",
 };
 
-esp_err_t cardmic_usb_start(void)
+esp_err_t cardmic_usb_start(bool with_keyboard)
 {
     if (s_installed) {
         return ESP_OK;
     }
+    s_keyboard = with_keyboard;
+    s_device_descriptor.idProduct = with_keyboard ? USB_PID_MIC_KEYBOARD : USB_PID_MIC;
 
     for (size_t i = 0; i < AUDIO_CHANNEL_COUNT + 1; ++i) {
         s_mute[i] = false;
@@ -116,7 +149,7 @@ esp_err_t cardmic_usb_start(void)
         .string_descriptor = s_string_descriptor,
         .string_descriptor_count = sizeof(s_string_descriptor) / sizeof(s_string_descriptor[0]),
         .external_phy = false,
-        .configuration_descriptor = s_configuration_descriptor,
+        .configuration_descriptor = with_keyboard ? s_configuration_descriptor_kb : s_configuration_descriptor,
     };
     esp_err_t err = tinyusb_driver_install(&cfg);
     if (err != ESP_OK) {
@@ -152,6 +185,20 @@ void cardmic_usb_stop(void)
 }
 
 bool cardmic_usb_mounted(void) { return s_installed && s_mounted; }
+bool cardmic_usb_keyboard_ready(void) { return s_installed && s_keyboard && s_mounted && tud_hid_ready(); }
+
+bool cardmic_usb_talk_key(uint8_t modifiers, uint8_t keycode, bool down)
+{
+    if (!s_installed || !s_keyboard || !s_mounted) {
+        return false;
+    }
+    // The interrupt endpoint may still be busy with the previous report.
+    for (int i = 0; i < 20 && !tud_hid_ready(); ++i) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    uint8_t keys[6] = {down ? keycode : 0};
+    return tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, down ? modifiers : 0, keycode ? keys : NULL);
+}
 bool cardmic_usb_streaming(void) { return s_installed && s_streaming; }
 bool cardmic_usb_host_muted(void) { return s_mute[0] || s_mute[1]; }
 

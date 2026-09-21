@@ -23,5 +23,4 @@ private:
 
     int _key_slot_id       = -1;
     uint32_t _last_draw_ms = 0;
-    bool _usb_ok           = false;
 };

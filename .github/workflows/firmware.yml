@@ -1,8 +1,9 @@
 name: firmware
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, next]
     paths: ["firmware/**", ".github/workflows/firmware.yml"]
     tags: ["v*"]
   pull_request:

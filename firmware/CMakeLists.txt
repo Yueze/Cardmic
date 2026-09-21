@@ -24,6 +24,12 @@ foreach(opt
     idf_build_set_property(COMPILE_OPTIONS "-D${opt}" APPEND)
 endforeach()
 
+# Development builds: idf.py -B build-dev -DCARDMIC_DEV=1 build
+# (remote reflash and key injection over Wi-Fi; never in releases).
+if(CARDMIC_DEV)
+    idf_build_set_property(COMPILE_OPTIONS "-DCARDMIC_DEV_TOOLS=1" APPEND)
+endif()
+
 # Single source of the firmware version (shown in About, compared by OTA).
 set(PROJECT_VER "0.5.2")
 project(cardputer-adv)

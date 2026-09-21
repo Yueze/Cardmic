@@ -17,6 +17,7 @@
 #include "app_cardmic.h"
 #include "cardmic_net.h"
 #include "cardmic_ota.h"
+#include "cardmic_pair.h"
 #include "cardmic_usb.h"
 #include "assets/cardmic_big.h"
 #include "assets/cardmic_small.h"
@@ -107,7 +108,8 @@ volatile uint32_t s_ring_w = 0;
 // Spectrogram: a sprite that scrolls one column left per frame.
 constexpr int SPEC_W = 200, SPEC_H = 62, SPEC_X = 2, SPEC_Y = 14;
 LGFX_Sprite* s_spec = nullptr;
-float s_spec_ceil   = -30.0f;  // adaptive top of the dB range
+float s_nf[SPEC_H];      // per-band noise floor, dB
+bool s_nf_ready = false;
 
 // Level meter ballistics and a slow numeric readout.
 float s_meter      = 0.0f;  // 0..1, fast attack / slow release
@@ -123,6 +125,7 @@ enum class Page {
     Settings,
     NetInfo,
     About,
+    Pairing,
     Scanning,
     List,
     ManualSsid,
@@ -132,7 +135,31 @@ enum class Page {
 };
 volatile Page s_page = Page::Main;
 
-enum SettingItem { SET_WIFI, SET_NETWORK, SET_MUTE, SET_GAIN, SET_ABOUT, SET_COUNT };
+enum SettingItem { SET_WIFI, SET_NETWORK, SET_PAIRING, SET_TALK, SET_MUTE, SET_GAIN, SET_ABOUT, SET_COUNT };
+
+// Push-to-talk ("voice keyboard"): holding SPACE on the main screen holds a
+// key chord on the computer over USB, which dictation apps use as their
+// hold-to-talk key. Modifier bits are HID: 0x01 Ctrl, 0x04 Alt/Option, 0x08 GUI.
+enum TalkKey { TALK_OFF, TALK_CTRL_OPT, TALK_CTRL_WIN, TALK_F13, TALK_COUNT };
+const struct {
+    const char* name;
+    uint8_t modifiers;
+    uint8_t keycode;
+} TALK_KEYS[TALK_COUNT] = {
+    {"OFF", 0, 0},
+    {"CTRL+OPT", 0x01 | 0x04, 0},  // macOS: Wispr Flow's hold key on keyboards without Fn
+    {"CTRL+WIN", 0x01 | 0x08, 0},  // Windows: Wispr Flow's default
+    {"F13", 0, 0x68},              // bind it to anything in your dictation app
+};
+int s_talk_key     = TALK_OFF;
+bool s_talk_down   = false;
+bool s_usb_ok      = false;
+bool s_audio_ok    = false;
+
+// Pairing (see cardmic_pair.h): the code and whether it is required.
+char s_pair_code[CARDMIC_PAIR_CODE_LEN + 1] = "";
+bool s_pair_required         = false;
+volatile bool s_pair_busy    = false;
 int s_set_sel = 0;
 
 std::vector<std::pair<int, std::string>> s_scan;
@@ -278,6 +305,8 @@ void audio_task(void*)
 /* ------------------------------------------------------------- WiFi tasks */
 
 // HAL::wifiConnect blocks for up to ~13 s, so all of this runs off the UI loop.
+volatile bool s_autoconnect_running = false;
+
 void autoconnect_task(void*)
 {
     std::string pass = GetHAL().getSettings().GetString("wifi_password", "");
@@ -286,7 +315,61 @@ void autoconnect_task(void*)
     if (ok) {
         cardmic_net_start();
     }
+    s_autoconnect_running = false;
     vTaskDelete(nullptr);
+}
+
+void start_autoconnect()
+{
+    if (s_autoconnect_running || s_wifi_ssid.empty()) return;
+    s_autoconnect_running = true;
+    s_wifi_state          = WifiState::Connecting;
+    if (xTaskCreate(autoconnect_task, "cardmic_wifi", 6144, nullptr, 4, nullptr) != pdPASS) {
+        s_autoconnect_running = false;
+        s_wifi_state          = WifiState::Failed;
+    }
+}
+
+// Keeps the WIFI light honest: notices a dropped network (and rejoins), and a
+// network brought up elsewhere. Retries a failed join every 30 s.
+void sync_wifi_state()
+{
+    static uint32_t last_check = 0, lost_at = 0, failed_at = 0;
+    const uint32_t now = GetHAL().millis();
+    if (now - last_check < 500 || s_page == Page::Connecting || s_page == Page::Scanning) return;
+    last_check    = now;
+    const bool up = GetHAL().isWifiConnected();
+    switch (s_wifi_state) {
+        case WifiState::Connected:
+            if (up) {
+                lost_at = 0;
+            } else if (!lost_at) {
+                lost_at = now;
+            } else if (now - lost_at > 3000) {
+                lost_at = 0;
+                start_autoconnect();
+            }
+            break;
+        case WifiState::Failed:
+            if (up) {
+                s_wifi_state = WifiState::Connected;
+                cardmic_net_start();
+            } else if (!failed_at) {
+                failed_at = now;
+            } else if (now - failed_at > 30000) {
+                failed_at = 0;
+                start_autoconnect();
+            }
+            break;
+        case WifiState::NotConfigured:
+            if (up) {
+                s_wifi_state = WifiState::Connected;
+                cardmic_net_start();
+            }
+            break;
+        case WifiState::Connecting:
+            break;
+    }
 }
 
 void scan_task(void*)
@@ -355,6 +438,78 @@ bool type_into(std::string& buf, const Keyboard::KeyEvent_t& e, size_t max_len)
     return false;
 }
 
+void talk(bool down)
+{
+    if (down == s_talk_down) return;
+    s_talk_down = down;
+    if (s_talk_key != TALK_OFF) {
+        cardmic_usb_talk_key(TALK_KEYS[s_talk_key].modifiers, TALK_KEYS[s_talk_key].keycode, down);
+    }
+}
+
+void start_audio()
+{
+    if (!s_audio_ok || s_audio_task) return;
+    s_audio_run = true;
+    xTaskCreatePinnedToCore(audio_task, "cardmic_audio", 4096, nullptr, 7, &s_audio_task, 0);
+}
+
+void stop_audio()
+{
+    s_audio_run = false;
+    for (int i = 0; i < 50 && s_audio_task; ++i) vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+// Re-enumerate USB, with or without the talk-key keyboard. The audio task
+// writes to USB, so it is paused around the switch.
+void restart_usb()
+{
+    talk(false);
+    stop_audio();
+    cardmic_usb_stop();
+    s_usb_ok = cardmic_usb_start(s_talk_key != TALK_OFF) == ESP_OK;
+    start_audio();
+}
+
+void pair_apply_task(void*)
+{
+    uint8_t enc[16], mac[16];
+    bool ok = cardmic_pair_derive(s_pair_code, enc, mac);
+    cardmic_net_set_pairing(s_pair_required && ok, enc, mac);
+    memset(enc, 0, sizeof(enc));
+    memset(mac, 0, sizeof(mac));
+    s_pair_busy = false;
+    vTaskDelete(nullptr);
+}
+
+// Hand the current pairing state to the network side. Deriving the keys
+// takes a moment, so it runs in its own task.
+void pair_apply()
+{
+    if (!s_pair_required) {
+        cardmic_net_set_pairing(false, nullptr, nullptr);
+        return;
+    }
+    s_pair_busy = true;
+    if (xTaskCreate(pair_apply_task, "cardmic_pair", 6144, nullptr, 3, nullptr) != pdPASS) s_pair_busy = false;
+}
+
+void pair_load()
+{
+    std::string code = GetHAL().getSettings().GetString("cardmic_code", "");
+    if (cardmic_pair_valid(code.c_str())) {
+        strlcpy(s_pair_code, code.c_str(), sizeof(s_pair_code));
+    } else {
+        cardmic_pair_generate(s_pair_code);
+        GetHAL().getSettings().SetString("cardmic_code", s_pair_code);
+    }
+    s_pair_required = GetHAL().getSettings().GetString("cardmic_pair", "0") == "1";
+#ifdef CARDMIC_DEV_TOOLS
+    cardmic_net_dev_set_code(s_pair_code);
+#endif
+    pair_apply();
+}
+
 void open_setting(int item)
 {
     switch (item) {
@@ -364,6 +519,14 @@ void open_setting(int item)
             break;
         case SET_NETWORK:
             s_page = Page::NetInfo;
+            break;
+        case SET_PAIRING:
+            s_page = Page::Pairing;
+            break;
+        case SET_TALK:
+            s_talk_key = (s_talk_key + 1) % TALK_COUNT;
+            GetHAL().getSettings().SetString("cardmic_talkkey", std::to_string(s_talk_key));
+            restart_usb();
             break;
         case SET_MUTE:
             s_device_muted = !s_device_muted;
@@ -411,6 +574,10 @@ bool go_back()
 
 void handle_key(const Keyboard::KeyEvent_t& e)
 {
+    if (e.keyCode == KEY_SPACE && s_page == Page::Main && !e.isModifier) {
+        talk(e.state);  // press and release both matter here
+        return;
+    }
     if (e.isModifier || !e.state) return;
     const char* k = e.keyName ? e.keyName : "";
     const bool up = e.keyCode == KEY_UP || e.keyCode == KEY_SEMICOLON;
@@ -434,6 +601,21 @@ void handle_key(const Keyboard::KeyEvent_t& e)
             if (up && s_set_sel > 0) s_set_sel--;
             else if (dn && s_set_sel + 1 < SET_COUNT) s_set_sel++;
             else if (e.keyCode == KEY_ENTER) open_setting(s_set_sel);
+            break;
+
+        case Page::Pairing:
+            if (e.keyCode == KEY_ENTER && !s_pair_busy) {
+                s_pair_required = !s_pair_required;
+                GetHAL().getSettings().SetString("cardmic_pair", s_pair_required ? "1" : "0");
+                pair_apply();
+            } else if ((!strcmp(k, "n") || !strcmp(k, "N")) && !s_pair_busy) {
+                cardmic_pair_generate(s_pair_code);
+                GetHAL().getSettings().SetString("cardmic_code", s_pair_code);
+#ifdef CARDMIC_DEV_TOOLS
+                cardmic_net_dev_set_code(s_pair_code);
+#endif
+                pair_apply();
+            }
             break;
 
         case Page::About:
@@ -595,6 +777,27 @@ bool draw_intro()
 
 // Heat-map colour for a distance from the waveform's centre line, 0..1:
 // deep blue at the centre through cyan and lime to yellow and red at the tips.
+// Spectrogram palette: black for "nothing above the noise floor", then the
+// Cardmic heat ramp at full saturation.
+uint32_t spec_color(float t)
+{
+    static const struct {
+        float at;
+        uint32_t col;
+    } STOPS[] = {
+        {0.00f, 0x000000}, {0.14f, 0x0D1FB0}, {0.32f, 0x2F6BFF}, {0.50f, 0x28F0FF},
+        {0.68f, C_ACCENT}, {0.84f, 0xFFD000}, {1.00f, 0xFF3B3B},
+    };
+    t = std::clamp(t, 0.0f, 1.0f);
+    for (size_t i = 1; i < sizeof(STOPS) / sizeof(STOPS[0]); ++i) {
+        if (t <= STOPS[i].at) {
+            float u = (t - STOPS[i - 1].at) / (STOPS[i].at - STOPS[i - 1].at);
+            return mix(STOPS[i - 1].col, STOPS[i].col, u);
+        }
+    }
+    return STOPS[6].col;
+}
+
 uint32_t heat(float t)
 {
     static const struct {
@@ -687,25 +890,32 @@ void spectrogram_column(uint32_t end, int x, bool live, bool muted)
     fft(re, im);
 
     float db[SPEC_H];
-    float frame_max = -120.0f;
     const float ref = FFT_N * 0.5f * 0.5f * 32768.0f;  // full-scale sine with Hann
     for (int r = 0; r < SPEC_H; ++r) {
         float m = 0.0f;
         for (int k = s_row_lo[r]; k <= s_row_hi[r]; ++k) m = std::max(m, re[k] * re[k] + im[k] * im[k]);
-        db[r]     = 10.0f * log10f(m / (ref * ref) + 1e-12f);
-        frame_max = std::max(frame_max, db[r]);
+        db[r] = 10.0f * log10f(m / (ref * ref) + 1e-12f);
     }
-    // Adaptive ceiling: jumps up on loud input, eases down at 8 dB/s.
-    s_spec_ceil = std::max(-45.0f, frame_max > s_spec_ceil ? frame_max : s_spec_ceil - 0.08f);
-    const float floor_db = s_spec_ceil - 55.0f;
 
+    // Show each band relative to its own noise floor, so steady background
+    // noise (hiss, hum, the room) is black and only sound above it lights up.
+    // The floor follows a quiet band down quickly and creeps up slowly
+    // (1.5 dB/s), so sustained speech is not mistaken for noise.
     for (int r = 0; r < SPEC_H; ++r) {
-        float t = std::clamp((db[r] - floor_db) / (s_spec_ceil - floor_db), 0.0f, 1.0f);
-        t       = t * t;  // keep the background dark, let speech glow
-        uint32_t col = muted ? mix(C_BG, 0x6A1F1F, t) : live ? mix(C_BG, heat(t), std::min(1.0f, t * 3.0f))
-                                                           : mix(C_BG, heat(t), std::min(1.0f, t * 3.0f) * 0.5f);
+        if (!s_nf_ready) {
+            s_nf[r] = db[r];
+        } else if (db[r] < s_nf[r]) {
+            s_nf[r] += (db[r] - s_nf[r]) * 0.25f;
+        } else {
+            s_nf[r] += 0.015f;
+        }
+        float above = db[r] - s_nf[r] - 7.0f;  // gate: noise flickers a few dB above its floor
+        float t     = std::clamp(above / 38.0f, 0.0f, 1.0f);
+        uint32_t col = muted ? mix(C_BG, 0x7A2424, t) : spec_color(t);
         s_spec->drawPixel(x, SPEC_H - 1 - r, col);
     }
+    s_nf_ready = true;
+    (void)live;
 }
 
 void spectrogram_step(bool live, bool muted)
@@ -759,7 +969,8 @@ void draw_meter(int x, int y, bool live, bool muted)
     int peak = std::min(SEGS - 1, (int)lroundf(s_peak_hold * SEGS));
     for (int i = 0; i < SEGS; ++i) {
         uint32_t on  = muted ? 0x6A1F1F : heat((i + 0.5f) / SEGS);
-        uint32_t col = i < lit ? (live || muted ? on : mix(on, C_BG, 0.45f)) : C_FAINT;
+        uint32_t col = i < lit ? on : C_FAINT;
+        (void)live;
         if (i == peak && peak > 0 && !muted) col = C_TEXT;
         c.fillRect(x + i * (SW + SGAP), y, SW, 8, col);
     }
@@ -783,15 +994,29 @@ void draw_main(bool usb_ok)
     const bool live      = (usb_live || wifi_live) && !s_device_muted;
 
     // ---- top row: link indicators left, function keys right
-    auto dot = [](int x, uint32_t col, const char* label) {
-        C().fillCircle(x + 2, 6, 2, col);
-        text(&fonts::Font0, col, x + 7, 3, label);
+    // Link lights: dim = no link, lime = linked (USB plugged into a computer,
+    // Wi-Fi joined), lime with a breathing ring = audio is flowing to that
+    // computer right now, amber = trouble or still connecting (blinks).
+    const uint32_t now = GetHAL().millis();
+    auto light = [now](int x, uint32_t col, const char* label, bool flowing) {
+        if (flowing) {
+            float p = 0.5f + 0.5f * sinf(now * 0.0063f);  // ~1 Hz
+            C().drawCircle(x + 3, 6, 5, mix(C_BG, col, 0.2f + 0.6f * p));
+        }
+        C().fillCircle(x + 3, 6, 3, col);
+        text(&fonts::Font0, col, x + 11, 3, label);
     };
-    dot(2, !usb_ok ? C_WARN : usb_live ? C_ACCENT : cardmic_usb_mounted() ? C_TEXT : C_DIM, "USB");
+    const bool blink = (now / 350) % 2;
+    uint32_t usb_col = !usb_ok ? C_WARN : cardmic_usb_mounted() ? C_ACCENT : C_DIM;
+    light(2, usb_col, "USB", usb_live);
     uint32_t net_col = C_DIM;
-    if (s_wifi_state == WifiState::Connected) net_col = wifi_live ? C_ACCENT : C_TEXT;
-    if (s_wifi_state == WifiState::Connecting || s_wifi_state == WifiState::Failed) net_col = C_WARN;
-    dot(34, net_col, "WIFI");
+    switch (s_wifi_state) {
+        case WifiState::Connected: net_col = C_ACCENT; break;
+        case WifiState::Connecting: net_col = blink ? C_WARN : C_FAINT; break;
+        case WifiState::Failed: net_col = C_WARN; break;
+        case WifiState::NotConfigured: net_col = C_DIM; break;
+    }
+    light(38, net_col, "WIFI", wifi_live);
 
     int kx = W - 2 - (text_w(&fonts::Font0, "S") + 5 + 3 + text_w(&fonts::Font0, "SET") + 7) -
              (text_w(&fonts::Font0, "M") + 5 + 3 + text_w(&fonts::Font0, "MUTE"));
@@ -804,7 +1029,9 @@ void draw_main(bool usb_ok)
     // ---- state word + level readout
     const char* word;
     uint32_t word_col;
-    if (s_device_muted) {
+    if (s_talk_down && s_talk_key != TALK_OFF) {
+        word = "TALK", word_col = C_CYAN;
+    } else if (s_device_muted) {
         word = "MUTED", word_col = C_MUTE;
     } else if (live) {
         word = "LIVE", word_col = C_ACCENT;
@@ -816,6 +1043,24 @@ void draw_main(bool usb_ok)
     text(&fonts::Orbitron_Light_24, word_col, 2, 84, word);
 
     draw_meter(W - 2 - 16 * 5 + 1, 85, live, s_device_muted);
+
+    if (s_talk_key != TALK_OFF) {
+        // Hold-to-talk key cap: lit while held, dim when there is no USB keyboard link.
+        const bool ready = cardmic_usb_keyboard_ready() || s_talk_down;
+        const int x = 112, y = 97;
+        int kw = text_w(&fonts::Font0, "SPC") + 5;
+        uint32_t cap = s_talk_down ? C_CYAN : ready ? C_TEXT : C_FAINT;
+        C().fillRoundRect(x, y, kw, 10, 1, cap);
+        text(&fonts::Font0, s_talk_down || ready ? C_BG : C_DIM, x + 3, y + 1, "SPC");
+        text(&fonts::Font0, s_talk_down ? C_CYAN : C_DIM, x + kw + 3, y + 1, ready ? "TALK" : "USB");
+    }
+
+    if (s_pair_required && cardmic_net_ms_since_unpaired() < 4000) {
+        const char* msg = "UNPAIRED PC - SETTINGS > PAIRING";
+        int w = text_w(&fonts::Font0, msg) + 6;
+        C().fillRect(SPEC_X, SPEC_Y + SPEC_H - 11, w, 11, C_BG);
+        text(&fonts::Font0, C_WARN, SPEC_X + 3, SPEC_Y + SPEC_H - 9, msg);
+    }
 }
 
 void setting_row(int y, int idx, bool sel, const char* label, const std::string& value, uint32_t value_col)
@@ -850,6 +1095,8 @@ void draw_settings()
     Row rows[SET_COUNT] = {
         {"Wi-Fi", ssid, wcol},
         {"Info", ip.empty() ? "--" : ip, C_DIM},
+        {"Pairing", s_pair_required ? "ON" : "OFF", s_pair_required ? C_ACCENT : C_DIM},
+        {"Talk key", TALK_KEYS[s_talk_key].name, s_talk_key != TALK_OFF ? C_CYAN : C_DIM},
         {"Mute", s_device_muted ? "ON" : "OFF", s_device_muted ? C_MUTE : C_DIM},
         {"Mic gain", GAIN_NAME[s_gain_idx], C_TEXT},
         {"About", std::string("v") + version(), C_DIM},
@@ -890,7 +1137,33 @@ void draw_netinfo()
     kv(44, "DEVICE", ip.empty() ? "--" : ip, ip.empty() ? C_DIM : C_ACCENT);
     kv(58, "RECEIVER", rx, cardmic_net_receiver_active() ? C_ACCENT : C_DIM);
     kv(72, "PORT", "UDP 41234");
+    kv(86, "AUDIO", s_pair_required ? "ENCRYPTED" : "OPEN (NO PAIRING)", s_pair_required ? C_ACCENT : C_WARN);
     hint_row({{"G0", "BACK"}});
+}
+
+void draw_pairing()
+{
+    page_title("PAIRING", s_pair_required ? "ON" : "OFF");
+    char code[CARDMIC_PAIR_CODE_LEN + 3];
+    cardmic_pair_format(s_demo ? "7K2M9QXB4TPA" : s_pair_code, code);  // docs screenshots get a sample code
+    text(&fonts::FreeMonoBold9pt7b, C_TEXT, W / 2, 17, code, textdatum_t::top_center);
+    text(&fonts::Font0, C_DIM, 2, 38, "ON YOUR COMPUTER, RUN ONCE:");
+    text(&fonts::Font0, C_ACCENT, 2, 49, (std::string("cardmic pair ") + code).c_str());
+
+    const char* status;
+    uint32_t col;
+    if (s_pair_busy) {
+        status = "APPLYING...", col = C_TEXT;
+    } else if (!s_pair_required) {
+        status = "OFF: ANYONE ON THIS WI-FI CAN LISTEN", col = C_WARN;
+    } else if (cardmic_net_encrypted()) {
+        status = "ON: PAIRED COMPUTER CONNECTED", col = C_ACCENT;
+    } else {
+        status = "ON: ONLY PAIRED COMPUTERS, ENCRYPTED", col = C_ACCENT;
+    }
+    text(&fonts::Font0, col, 2, 66, status);
+    text(&fonts::Font0, C_DIM, 2, 78, "NEW CODE UNPAIRS EVERY COMPUTER");
+    hint_row({{"ENT", s_pair_required ? "TURN OFF" : "TURN ON"}, {"N", "NEW CODE"}, {"G0", "BACK"}});
 }
 
 void draw_about()
@@ -1009,6 +1282,26 @@ std::string upper(std::string s)
     return s;
 }
 
+#ifdef CARDMIC_DEV_TOOLS
+// Development builds accept key events over Wi-Fi (see cardmic_net.c), so the
+// UI can be exercised without touching the device.
+void dev_poll()
+{
+    uint8_t code;
+    bool down;
+    char name[4];
+    while (cardmic_net_take_dev_key(&code, &down, name, sizeof(name))) {
+        static char held[4];
+        strlcpy(held, name, sizeof(held));
+        Keyboard::KeyEvent_t e;
+        e.state   = down;
+        e.keyCode = (KeScanCode_t)code;
+        e.keyName = held;
+        handle_key(e);
+    }
+}
+#endif
+
 // Sends the whole 240x135 screen (keyboard bar + system bar + app canvas) as
 // CMSS packets: 16-byte header then big-endian RGB565 rows. See PROTOCOL.md.
 void send_screenshot(uint32_t addr, uint16_t port)
@@ -1074,8 +1367,8 @@ void serve_screenshot(const std::function<void()>& redraw)
     struct {
         const char* name;
         Page page;
-    } const pages[] = {{"main", Page::Main}, {"settings", Page::Settings}, {"info", Page::NetInfo},
-                       {"about", Page::About}};
+    } const pages[] = {{"main", Page::Main},     {"settings", Page::Settings}, {"info", Page::NetInfo},
+                       {"about", Page::About},   {"pairing", Page::Pairing}};
     const Page before = s_page;
     bool forced       = false;
     for (auto& p : pages) {
@@ -1088,7 +1381,8 @@ void serve_screenshot(const std::function<void()>& redraw)
         s_demo = true;
         redraw();
     }
-    send_screenshot(addr, port);
+    // The pairing page is only ever captured in demo mode, with a sample code.
+    if (s_page != Page::Pairing || s_demo) send_screenshot(addr, port);
     if (forced) {
         s_demo = false;
         s_page = before;
@@ -1121,24 +1415,24 @@ void AppCardmic::onOpen()
         mclog::tagError(getAppInfo().name, "mic init failed");
     }
 
-    // USB: fails if the stock USB keyboard already owns TinyUSB this boot.
-    _usb_ok = cardmic_usb_start() == ESP_OK;
-
     std::string g = GetHAL().getSettings().GetString("cardmic_gain", "1");
     s_gain_idx    = std::clamp(atoi(g.c_str()), 0, 2);
+    s_talk_key    = std::clamp(atoi(GetHAL().getSettings().GetString("cardmic_talkkey", "0").c_str()), 0, TALK_COUNT - 1);
+    s_talk_down   = false;
 
-    if (audio_ok) {
-        s_audio_run = true;
-        xTaskCreatePinnedToCore(audio_task, "cardmic_audio", 4096, nullptr, 7, &s_audio_task, 0);
-    }
+    // USB: fails if the stock USB keyboard already owns TinyUSB this boot.
+    s_usb_ok = cardmic_usb_start(s_talk_key != TALK_OFF) == ESP_OK;
+
+    s_audio_ok = audio_ok;
+    start_audio();
+    pair_load();
 
     // WiFi: use the saved network (set in Settings > Wi-Fi, or the stock Set WiFi).
     s_wifi_ssid = GetHAL().getSettings().GetString("wifi_ssid", "");
     if (s_wifi_ssid.empty()) {
         s_wifi_state = WifiState::NotConfigured;
     } else {
-        s_wifi_state = WifiState::Connecting;
-        xTaskCreate(autoconnect_task, "cardmic_wifi", 6144, nullptr, 4, nullptr);
+        start_autoconnect();
     }
 
     if (!s_spec) {
@@ -1153,6 +1447,7 @@ void AppCardmic::onOpen()
     if (s_spec) s_spec->fillScreen(TFT_BLACK);
     s_meter = s_peak_hold = 0.0f;
     s_col_pos = s_ring_w;
+    s_nf_ready = false;
 
     s_page       = Page::Main;
     s_set_sel    = 0;
@@ -1163,6 +1458,10 @@ void AppCardmic::onOpen()
 
 void AppCardmic::onRunning()
 {
+    sync_wifi_state();
+#ifdef CARDMIC_DEV_TOOLS
+    dev_poll();
+#endif
     if (GetHAL().millis() - _last_draw_ms > 33) {
         draw();
         serve_screenshot([this] { draw(); });
@@ -1181,10 +1480,8 @@ void AppCardmic::onClose()
         _key_slot_id = -1;
     }
 
-    s_audio_run = false;
-    for (int i = 0; i < 50 && s_audio_task; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
+    talk(false);
+    stop_audio();
     cardmic_net_stop();
     cardmic_usb_stop();  // also hands USB back to the serial port
     i2s_mic_stop();
@@ -1201,6 +1498,7 @@ void AppCardmic::onClose()
 
 void AppCardmic::draw()
 {
+    if (s_talk_down && s_page != Page::Main) talk(false);  // never leave the chord held
     C().fillScreen(C_BG);
     if (s_page == Page::Main && draw_intro()) {
         GetHAL().pushCanvas();
@@ -1208,7 +1506,7 @@ void AppCardmic::draw()
     }
     switch (s_page) {
         case Page::Main:
-            draw_main(_usb_ok);
+            draw_main(s_usb_ok);
             break;
         case Page::Settings:
             draw_settings();
@@ -1218,6 +1516,9 @@ void AppCardmic::draw()
             break;
         case Page::About:
             draw_about();
+            break;
+        case Page::Pairing:
+            draw_pairing();
             break;
         case Page::Scanning:
             draw_busy("WI-FI", "SCANNING...");

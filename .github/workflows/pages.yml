@@ -1,0 +1,58 @@
+name: installer
+
+# Publishes the browser installer (site/) with the latest release's firmware
+# to GitHub Pages. ESP Web Tools needs the image on the same origin as the page.
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [firmware]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          version=${tag#v}
+          mkdir -p _site
+          cp site/index.html _site/
+          cp docs/images/icon.png docs/images/screen-main.png _site/
+          if ! gh release download "$tag" --repo "$GITHUB_REPOSITORY" -p "cardmic-${version}-full.bin" -O _site/cardmic-full.bin; then
+            echo "release $tag has no full image yet; nothing to publish"
+            exit 1
+          fi
+          cat > _site/manifest.json <<JSON
+          {
+            "name": "Cardmic",
+            "version": "${version}",
+            "new_install_prompt_erase": false,
+            "builds": [
+              { "chipFamily": "ESP32-S3", "parts": [ { "path": "cardmic-full.bin", "offset": 0 } ] }
+            ]
+          }
+          JSON
+          ls -l _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+      - id: deployment
+        uses: actions/deploy-pages@v4

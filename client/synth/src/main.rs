@@ -12,11 +12,16 @@
 //!    packet. A client that broadcasts once will go silent after 2.5 s.
 //!
 //! Usage:
-//!   cardmic-synth [--port N] [--cpm1] [--tone HZ] [--loss PCT]
+//!   cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT]
+//!
+//! Without `--pair` it behaves like a device with pairing off (plain CPM1,
+//! any discovery accepted). With `--pair` it behaves like a device with
+//! pairing on: only authenticated v2 discovery, audio sealed as CPM2.
 //!
 //! `--port` defaults to 41235, not 41234, so it can run on the same machine as
 //! a client that binds 41234. Point the client's discovery at 127.0.0.1:41235.
 
+use cardmic_core::pairing::{normalize_code, Keys};
 use cardmic_core::protocol::{
     Packet, Version, DISCOVERY_MESSAGE, RECEIVER_TIMEOUT, SAMPLES_PER_PACKET, SAMPLE_RATE,
 };
@@ -27,19 +32,22 @@ const PACKET_INTERVAL: Duration = Duration::from_millis(20);
 
 struct Config {
     port: u16,
-    version: Version,
+    keys: Option<Keys>,
     tone_hz: f32,
     loss_pct: u32,
 }
 
 fn parse_args() -> Result<Config, String> {
-    let mut cfg = Config { port: 41235, version: Version::Cpm2, tone_hz: 440.0, loss_pct: 0 };
+    let mut cfg = Config { port: 41235, keys: None, tone_hz: 440.0, loss_pct: 0 };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
         match arg.as_str() {
             "--port" => cfg.port = value("--port")?.parse().map_err(|e| format!("--port: {e}"))?,
-            "--cpm1" => cfg.version = Version::Cpm1,
+            "--pair" => {
+                let code = normalize_code(&value("--pair")?).map_err(|e| format!("--pair: {e}"))?;
+                cfg.keys = Some(Keys::derive(&code));
+            }
             "--tone" => cfg.tone_hz = value("--tone")?.parse().map_err(|e| format!("--tone: {e}"))?,
             "--loss" => {
                 cfg.loss_pct = value("--loss")?.parse().map_err(|e| format!("--loss: {e}"))?;
@@ -48,7 +56,7 @@ fn parse_args() -> Result<Config, String> {
                 }
             }
             "-h" | "--help" => {
-                println!("cardmic-synth [--port N] [--cpm1] [--tone HZ] [--loss PCT]");
+                println!("cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT]");
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument: {other}")),
@@ -90,14 +98,18 @@ fn main() {
     socket.set_read_timeout(Some(Duration::from_millis(5))).expect("set_read_timeout");
 
     println!(
-        "cardmic-synth listening on :{}  ({:?}, {} Hz tone, {}% loss)",
-        cfg.port, cfg.version, cfg.tone_hz, cfg.loss_pct
+        "cardmic-synth listening on :{}  (pairing {}, {} Hz tone, {}% loss)",
+        cfg.port,
+        if cfg.keys.is_some() { "on" } else { "off" },
+        cfg.tone_hz,
+        cfg.loss_pct
     );
 
     let mut receiver: Option<SocketAddr> = None;
     let mut last_discovery = Instant::now();
     let mut next_packet = Instant::now();
     let mut sequence: u32 = 0;
+    let mut session: u32 = 0;
     let mut phase: f32 = 0.0;
     let phase_step = cfg.tone_hz / SAMPLE_RATE as f32;
     let mut lossy = Lossy { state: 0x9E37_79B9, pct: cfg.loss_pct };
@@ -107,10 +119,16 @@ fn main() {
         // Service discovery. The reply goes to the SOURCE address and port of
         // this datagram -- rule 1 of the contract.
         match socket.recv_from(&mut buf) {
-            Ok((n, from)) if &buf[..n] == DISCOVERY_MESSAGE => {
+            Ok((n, from))
+                if match &cfg.keys {
+                    Some(k) => k.verify_discovery(&buf[..n]),
+                    None => &buf[..n] == DISCOVERY_MESSAGE || buf[..n].starts_with(b"CPADV_MIC_DISCOVER_V2"),
+                } =>
+            {
                 if receiver != Some(from) {
                     println!("receiver: {from}");
                     sequence = 0;
+                    session = session.wrapping_mul(1_664_525).wrapping_add(1_013_904_223) ^ from.port() as u32;
                 }
                 receiver = Some(from);
                 last_discovery = Instant::now();
@@ -142,13 +160,16 @@ fn main() {
             })
             .collect();
 
-        let packet = Packet::new(cfg.version, sequence, samples);
+        let wire = match &cfg.keys {
+            Some(k) => k.seal(session, sequence, &samples),
+            None => Packet::new(Version::Cpm1, sequence, samples).encode(),
+        };
         sequence = sequence.wrapping_add(1);
 
         if lossy.drop_this() {
             continue; // simulated loss: sequence still advanced, as on a real link
         }
-        if let Err(e) = socket.send_to(&packet.encode(), dest) {
+        if let Err(e) = socket.send_to(&wire, dest) {
             eprintln!("send to {dest} failed: {e}");
         }
     }

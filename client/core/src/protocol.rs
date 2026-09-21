@@ -1,9 +1,10 @@
 //! Cardmic wire protocol.
 //!
-//! Two packet versions are understood. `CPM1` is what the firmware speaks
-//! today. `CPM2` is reserved for pairing: it keeps CPM1's 16-byte header
-//! byte-for-byte and inserts a 16-byte authentication tag before the payload,
-//! so that adding authentication later does not change the framing again.
+//! Two packet versions exist. `CPM1` is plain audio, used while pairing is
+//! off. `CPM2` is encrypted audio, used once the device requires pairing; it
+//! keeps CPM1's header layout, puts a per-session id where CPM1 has the
+//! sample rate, and inserts a 16-byte AES-GCM tag before the payload. This
+//! module parses CPM1; [`crate::pairing`] opens CPM2.
 //!
 //! ```text
 //! CPM1 (656 bytes)                 CPM2 (672 bytes)
@@ -12,9 +13,9 @@
 //!  5      flags                     5      flags
 //!  6.. 7  sample_count = 320        6.. 7  sample_count = 320
 //!  8..11  sequence                  8..11  sequence
-//! 12..15  sample_rate = 16000      12..15  sample_rate = 16000
-//! 16..    samples i16[320]         16..31  auth_tag [16]  (zero in v1)
-//!                                  32..    samples i16[320]
+//! 12..15  sample_rate = 16000      12..15  session (random)
+//! 16..    samples i16[320]         16..31  AES-GCM tag
+//!                                  32..    ciphertext of i16[320]
 //! ```
 //!
 //! All integers are little-endian. The sample payload is raw PCM.
@@ -67,9 +68,9 @@ pub const CPM2_LEN: usize = HEADER_LEN + AUTH_TAG_LEN + PAYLOAD_LEN; // 672
 /// Which framing a packet uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Version {
-    /// Current firmware, no authentication field.
+    /// Plain audio (pairing off).
     Cpm1,
-    /// Reserved for pairing; carries a (currently zero) authentication tag.
+    /// Encrypted audio (pairing on); see [`crate::pairing`].
     Cpm2,
 }
 
@@ -133,6 +134,8 @@ pub enum DecodeError {
     UnexpectedSampleCount(u16),
     /// `sample_rate` is not [`SAMPLE_RATE`].
     UnexpectedSampleRate(u32),
+    /// A well-formed CPM2 packet: needs the pairing keys to open.
+    Encrypted,
 }
 
 impl std::fmt::Display for DecodeError {
@@ -148,6 +151,7 @@ impl std::fmt::Display for DecodeError {
             }
             DecodeError::UnexpectedSampleCount(n) => write!(f, "unexpected sample_count {n}"),
             DecodeError::UnexpectedSampleRate(r) => write!(f, "unexpected sample_rate {r}"),
+            DecodeError::Encrypted => write!(f, "encrypted packet; pair this computer first"),
         }
     }
 }
@@ -176,8 +180,12 @@ impl Packet {
         Packet { version, flags: 0, sequence, sample_rate: SAMPLE_RATE, samples }
     }
 
-    /// Serialise to the wire.
+    /// Serialise a CPM1 packet. CPM2 is produced by [`crate::pairing::Keys::seal`].
+    ///
+    /// # Panics
+    /// If the packet is CPM2.
     pub fn encode(&self) -> Vec<u8> {
+        assert_eq!(self.version, Version::Cpm1, "CPM2 packets are sealed with pairing::Keys::seal");
         let mut out = vec![0u8; self.version.packet_len()];
         out[0..4].copy_from_slice(self.version.magic());
         out[4] = self.version.version_byte();
@@ -185,7 +193,6 @@ impl Packet {
         out[6..8].copy_from_slice(&(self.samples.len() as u16).to_le_bytes());
         out[8..12].copy_from_slice(&self.sequence.to_le_bytes());
         out[12..16].copy_from_slice(&self.sample_rate.to_le_bytes());
-        // auth_tag (CPM2 only) stays zero in v1.
         let base = self.version.payload_offset();
         for (i, s) in self.samples.iter().enumerate() {
             out[base + i * 2..base + i * 2 + 2].copy_from_slice(&s.to_le_bytes());
@@ -193,7 +200,8 @@ impl Packet {
         out
     }
 
-    /// Parse a datagram. Accepts both `CPM1` and `CPM2`.
+    /// Parse a CPM1 datagram. A valid-looking CPM2 datagram yields
+    /// [`DecodeError::Encrypted`]; open it with [`crate::pairing::Keys::open`].
     pub fn decode(buf: &[u8]) -> Result<Packet, DecodeError> {
         if buf.len() < HEADER_LEN {
             return Err(DecodeError::TooShort { len: buf.len() });
@@ -219,6 +227,9 @@ impl Packet {
         let sample_count = u16_le(&buf[6..8]);
         if sample_count as usize != SAMPLES_PER_PACKET {
             return Err(DecodeError::UnexpectedSampleCount(sample_count));
+        }
+        if version == Version::Cpm2 {
+            return Err(DecodeError::Encrypted);
         }
         let sample_rate = u32_le(&buf[12..16]);
         if sample_rate != SAMPLE_RATE {
@@ -263,30 +274,20 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_both_versions() {
-        for version in [Version::Cpm1, Version::Cpm2] {
-            let original = Packet::new(version, 0xDEAD_BEEF, ramp());
-            let decoded = Packet::decode(&original.encode()).expect("decodes");
-            assert_eq!(decoded, original, "{version:?} did not survive a round trip");
-        }
+    fn round_trips_cpm1() {
+        let original = Packet::new(Version::Cpm1, 0xDEAD_BEEF, ramp());
+        let decoded = Packet::decode(&original.encode()).expect("decodes");
+        assert_eq!(decoded, original);
     }
 
     #[test]
-    fn cpm2_keeps_cpm1_field_positions() {
-        // The CPM2 layout keeps every CPM1 header field at the same offset and
-        // inserts the tag after the header. Field *positions* are identical;
-        // the magic and version byte legitimately differ in value.
-        let a = Packet::new(Version::Cpm1, 42, ramp()).encode();
-        let b = Packet::new(Version::Cpm2, 42, ramp()).encode();
-        assert_eq!(a[5..16], b[5..16], "flags/sample_count/sequence/sample_rate must match");
-        assert_ne!(a[0..4], b[0..4], "magic must differ so CPM1 parsers reject CPM2");
-        assert_eq!((a[4], b[4]), (1, 2), "version byte identifies the framing");
-    }
-
-    #[test]
-    fn cpm2_auth_tag_is_zero_in_v1() {
-        let encoded = Packet::new(Version::Cpm2, 1, ramp()).encode();
-        assert_eq!(&encoded[16..32], &[0u8; 16]);
+    fn cpm2_is_reported_as_encrypted() {
+        let keys = crate::pairing::Keys::derive("7K2M9QXB4TPA");
+        let sealed = keys.seal(1, 2, &ramp());
+        assert_eq!(Packet::decode(&sealed), Err(DecodeError::Encrypted));
+        // Same header layout as CPM1 except the magic, version and last word.
+        let plain = Packet::new(Version::Cpm1, 2, ramp()).encode();
+        assert_eq!(plain[5..12], sealed[5..12], "flags/sample_count/sequence at the same offsets");
     }
 
     #[test]
@@ -298,10 +299,11 @@ mod tests {
 
     #[test]
     fn rejects_a_cpm2_datagram_claiming_cpm1_length() {
-        let mut encoded = Packet::new(Version::Cpm2, 1, ramp()).encode();
-        encoded.truncate(CPM1_LEN);
+        let keys = crate::pairing::Keys::derive("7K2M9QXB4TPA");
+        let mut sealed = keys.seal(1, 1, &ramp());
+        sealed.truncate(CPM1_LEN);
         assert_eq!(
-            Packet::decode(&encoded),
+            Packet::decode(&sealed),
             Err(DecodeError::WrongLength { expected: CPM2_LEN, actual: CPM1_LEN })
         );
     }
@@ -315,7 +317,7 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_magic_and_version_byte() {
-        let mut encoded = Packet::new(Version::Cpm2, 1, ramp()).encode();
+        let mut encoded = crate::pairing::Keys::derive("7K2M9QXB4TPA").seal(1, 1, &ramp());
         encoded[4] = 1; // claims CPM1 while carrying CPM2 magic
         assert_eq!(
             Packet::decode(&encoded),

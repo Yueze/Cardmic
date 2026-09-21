@@ -63,3 +63,5 @@ obj/
 
 sdkconfig
 sdkconfig.old
+dist/
+build-dev/

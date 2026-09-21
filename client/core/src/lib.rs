@@ -6,5 +6,6 @@
 //! work on without owning a Cardputer.
 
 pub mod dsp;
+pub mod pairing;
 pub mod protocol;
 pub mod sequencer;

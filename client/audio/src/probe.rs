@@ -6,7 +6,7 @@
 //! on both sides and silent, and the prototype hit the same false positive
 //! with an Oculus device. Only a measurement settles it.
 
-use crate::{find_input, find_output};
+use crate::{find_input, find_output, Candidate};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -39,18 +39,18 @@ impl Verdict {
     }
 }
 
-/// Play a tone into `name`'s output side and measure RMS on its input side.
-pub fn loopback_rms(host: &cpal::Host, name: &str) -> Verdict {
-    match measure(host, name) {
+/// Play a tone into the candidate's output side and measure RMS on its input side.
+pub fn loopback_rms(host: &cpal::Host, candidate: &Candidate) -> Verdict {
+    match measure(host, &candidate.output, &candidate.input) {
         Ok(rms) if rms > LOOPBACK_THRESHOLD => Verdict::Loops(rms),
         Ok(rms) => Verdict::Silent(rms),
         Err(e) => Verdict::Error(e),
     }
 }
 
-fn measure(host: &cpal::Host, name: &str) -> Result<f32, String> {
-    let out = find_output(host, name).ok_or("no output side")?;
-    let inp = find_input(host, name).ok_or("no input side")?;
+fn measure(host: &cpal::Host, output: &str, input: &str) -> Result<f32, String> {
+    let out = find_output(host, output).ok_or("no output side")?;
+    let inp = find_input(host, input).ok_or("no input side")?;
 
     let out_cfg = out.default_output_config().map_err(|e| format!("output config: {e}"))?;
     let in_cfg = inp.default_input_config().map_err(|e| format!("input config: {e}"))?;

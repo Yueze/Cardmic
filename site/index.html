@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardmic Installer</title>
+<meta name="description" content="Install Cardmic on an M5Stack Cardputer ADV from your browser.">
+<link rel="icon" href="icon.png">
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root {
+    --bg: #0b0b0c; --panel: #151517; --line: #26262a; --text: #f2f2f2; --dim: #9a9aa2;
+    --accent: #99ff00; --cyan: #28f0ff; --warn: #ffb020;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 56px 16px 72px; }
+  header { display: flex; align-items: center; gap: 18px; }
+  header img { width: 72px; height: 72px; }
+  h1 { font-size: 40px; line-height: 1.1; margin: 0; letter-spacing: -0.02em; }
+  .tag { color: var(--dim); margin: 6px 0 0; }
+  .hero { margin: 36px 0 28px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #000; }
+  .hero img { display: block; width: 100%; image-rendering: pixelated; }
+  .install { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; }
+  .install h2 { margin: 0 0 6px; font-size: 22px; }
+  .version { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+  esp-web-install-button button, .btn {
+    appearance: none; border: 0; border-radius: 10px; padding: 14px 22px; font: 600 16px/1 inherit;
+    background: var(--accent); color: #000; cursor: pointer; }
+  .btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); text-decoration: none; display: inline-block; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; }
+  ol { padding-left: 20px; margin: 18px 0 0; }
+  li { margin: 6px 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; background: #202024;
+         padding: 2px 6px; border-radius: 6px; }
+  .note { color: var(--dim); font-size: 14px; margin-top: 16px; }
+  .warn { color: var(--warn); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .card p { margin: 0; color: var(--dim); font-size: 14px; }
+  footer { margin-top: 40px; color: var(--dim); font-size: 13px; }
+  a { color: var(--cyan); }
+  [slot="unsupported"], [slot="not-allowed"] { color: var(--warn); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>Cardmic</h1>
+      <p class="tag">Turn an M5Stack Cardputer ADV into a microphone. Driverless over USB, wireless over Wi-Fi.</p>
+    </div>
+  </header>
+
+  <div class="hero"><img src="screen-main.png" alt="Cardmic main screen: live spectrogram and level meter"></div>
+
+  <section class="install">
+    <h2>Install from your browser</h2>
+    <div class="version" id="version">loading version…</div>
+    <ol>
+      <li>Plug the Cardputer ADV into this computer with a USB-C cable that carries data.</li>
+      <li>Leave it on the stock launcher menu. (If it is not detected: power off, hold <b>G0</b>, plug in, release.)</li>
+      <li>Click <b>Install</b> and pick the <code>USB JTAG/serial debug unit</code> port.</li>
+    </ol>
+    <div class="row">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">Install Cardmic</button>
+        <span slot="unsupported">Your browser cannot talk to USB devices. Use Chrome or Edge on a desktop.</span>
+        <span slot="not-allowed">Open this page over HTTPS to install.</span>
+      </esp-web-install-button>
+      <a class="btn secondary" href="https://github.com/Yueze/Cardmic">Source on GitHub</a>
+    </div>
+    <p class="note">Installs M5Stack's factory firmware with the Cardmic app added: the stock launcher and apps stay.
+      The stock settings (such as saved Wi-Fi) are reset. After this, updates install over Wi-Fi from
+      Cardmic &gt; Settings &gt; About.</p>
+  </section>
+
+  <div class="grid">
+    <div class="card"><h3>USB</h3><p>Nothing to install on the computer. Pick "Cardmic Microphone" as the input.</p></div>
+    <div class="card"><h3>Wi-Fi</h3><p>Run the <a href="https://github.com/Yueze/Cardmic/releases/latest">cardmic client</a> with BlackHole (macOS) or VB-CABLE (Windows).</p></div>
+    <div class="card"><h3>Hold to talk</h3><p>Hold Space to hold your dictation app's hotkey, over USB.</p></div>
+    <div class="card"><h3>Private</h3><p>Pair once with a code on the screen; wireless audio is then encrypted.</p></div>
+  </div>
+
+  <footer>MIT licensed. Cardmic is an independent project, not affiliated with M5Stack.</footer>
+</main>
+<script>
+  fetch("manifest.json").then(r => r.json()).then(m => {
+    document.getElementById("version").textContent = "Latest: v" + m.version;
+  }).catch(() => { document.getElementById("version").textContent = ""; });
+</script>
+</body>
+</html>
