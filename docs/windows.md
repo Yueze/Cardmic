@@ -24,7 +24,7 @@ Install [VB-CABLE](https://vb-audio.com/Cable/) (donationware). It adds
 ### 2. The client
 
 Download `cardmic-windows-x64.zip` from the
-[latest release](https://github.com/Yueze/cardmic/releases/latest), unzip it,
+[latest release](https://github.com/Yueze/Cardmic/releases/latest), unzip it,
 and in a terminal in that folder run:
 
 ```powershell

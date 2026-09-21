@@ -15,7 +15,7 @@ keep the stock boot screen, launcher and every stock app. You flash over USB
   computer never sees the device, try another cable first.
 - Python 3 with esptool: `pip install esptool`
 - `cardmic-<version>-full.bin` from the
-  [latest release](https://github.com/Yueze/cardmic/releases/latest)
+  [latest release](https://github.com/Yueze/Cardmic/releases/latest)
 
 ## 1. Put the Cardputer in download mode
 

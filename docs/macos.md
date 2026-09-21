@@ -28,7 +28,7 @@ genuinely loop audio back.
 ### 2. The client
 
 Download `cardmic-macos-universal.tar.gz` from the
-[latest release](https://github.com/Yueze/cardmic/releases/latest), then:
+[latest release](https://github.com/Yueze/Cardmic/releases/latest), then:
 
 ```bash
 tar xzf cardmic-macos-universal.tar.gz

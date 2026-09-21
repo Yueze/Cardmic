@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Yueze/cardmic/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Yueze/cardmic?color=99ff00&labelColor=111"></a>
-  <a href="https://github.com/Yueze/cardmic/actions/workflows/firmware.yml"><img alt="Firmware" src="https://img.shields.io/github/actions/workflow/status/Yueze/cardmic/firmware.yml?label=firmware&labelColor=111"></a>
-  <a href="https://github.com/Yueze/cardmic/actions/workflows/client.yml"><img alt="Client" src="https://img.shields.io/github/actions/workflow/status/Yueze/cardmic/client.yml?label=client&labelColor=111"></a>
+  <a href="https://github.com/Yueze/Cardmic/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Yueze/Cardmic?color=99ff00&labelColor=111"></a>
+  <a href="https://github.com/Yueze/Cardmic/actions/workflows/firmware.yml"><img alt="Firmware" src="https://img.shields.io/github/actions/workflow/status/Yueze/Cardmic/firmware.yml?label=firmware&labelColor=111"></a>
+  <a href="https://github.com/Yueze/Cardmic/actions/workflows/client.yml"><img alt="Client" src="https://img.shields.io/github/actions/workflow/status/Yueze/Cardmic/client.yml?label=client&labelColor=111"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f6bff?labelColor=111"></a>
 </p>
 
@@ -40,7 +40,7 @@ use two ways:
 | **Wireless mode** | UDP streaming on the local network, 20 ms packets, loss concealment, automatic discovery. |
 | **Lives in the stock firmware** | Installed as one more app in M5Stack's launcher. Nothing else on the device changes. |
 | **On-device setup** | Scan and join Wi-Fi with the built-in keyboard. No phone app, no config files. |
-| **Live spectrogram** | Scrolling 100 Hz – 8 kHz heat map with a segmented level meter and peak hold. |
+| **Live spectrogram** | 100 Hz – 8 kHz heat map, one column per 10 ms, the last 2 seconds on screen, plus a segmented level meter with peak hold. |
 | **Clean signal path** | ES8311 codec at +30 dB PGA, DC removal, 100 Hz high-pass (4th order), three gain steps. |
 | **Updates over Wi-Fi** | Checks GitHub Releases from the device and installs new versions, with automatic rollback. |
 | **Open protocol** | A few pages of [spec](protocol/PROTOCOL.md) and reference code on both ends. |
@@ -66,7 +66,7 @@ Network details in the captures are placeholders.</sub>
 ## Quick start
 
 **1. Install the firmware (once).** Download `cardmic-0.5.0-full.bin` from the
-[latest release](https://github.com/Yueze/cardmic/releases/latest) and flash it
+[latest release](https://github.com/Yueze/Cardmic/releases/latest) and flash it
 over USB. Step-by-step instructions: [docs/flashing.md](docs/flashing.md).
 
 **2. Use it over USB.** Open **Cardmic** in the launcher, plug the Cardputer

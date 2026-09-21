@@ -92,7 +92,7 @@ Not a UDP protocol, but part of the contract with the device. The device's
 About > Check update opens
 
 ```
-https://github.com/Yueze/cardmic/releases/latest/download/cardmic-ota.bin
+https://github.com/Yueze/Cardmic/releases/latest/download/cardmic-ota.bin
 ```
 
 reads the version from the image header, and installs the image only if it is

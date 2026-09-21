@@ -3,8 +3,8 @@
 
 The stock launcher draws each icon on a light-grey (#E6E6E6) rounded tile and
 expects byte-swapped RGB565, which is what lcd-image-converter emitted for the
-stock icons. The design echoes the app itself: a black "screen" holding seven
-mirrored bars in the Cardmic heat palette.
+stock icons. The design follows the stock icon language: flat fills, heavy
+black strokes and the stock pink / cyan / blue palette.
 
 Usage: python3 tools/make_cardmic_icon.py [--png-dir DIR]
 """
@@ -15,43 +15,54 @@ from PIL import Image, ImageDraw
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "main", "apps", "app_cardmic", "assets")
 TILE = (0xE6, 0xE6, 0xE6)
-HEAT = [(0.00, (0x1B, 0x2A, 0x6B)), (0.22, (0x2F, 0x6B, 0xFF)), (0.42, (0x28, 0xF0, 0xFF)),
-        (0.62, (0x99, 0xFF, 0x00)), (0.80, (0xFF, 0xD0, 0x00)), (1.00, (0xFF, 0x3B, 0x3B))]
-BARS = [0.34, 0.62, 0.92, 0.55, 1.00, 0.70, 0.40]  # half-heights, fraction of max
-
-
-def heat(t):
-    t = max(0.0, min(1.0, t))
-    for (a, ca), (b, cb) in zip(HEAT, HEAT[1:]):
-        if t <= b:
-            u = (t - a) / (b - a)
-            return tuple(round(x + (y - x) * u) for x, y in zip(ca, cb))
-    return HEAT[-1][1]
+# Palette sampled from the stock launcher icons (ESP-NOW, Wi-Fi scan, REPL).
+INK = (0x00, 0x00, 0x00)
+PINK = (0xFF, 0x00, 0x62)
+CYAN = (0x00, 0xCE, 0xFF)
+BLUE = (0x00, 0x8D, 0xD5)
+WHITE = (0xFF, 0xFF, 0xFF)
 
 
 def render(size, scale=8):
+    """A studio mic broadcasting both ways, in the stock icon language: flat
+    fills, heavy black strokes, a black body with a coloured rim."""
     s = size * scale
     img = Image.new("RGB", (s, s), TILE)
     d = ImageDraw.Draw(img)
-    inset, radius = round(s * 0.04), round(s * 0.14)
-    d.rounded_rectangle([inset, inset, s - 1 - inset, s - 1 - inset], radius=radius, fill=(0, 0, 0))
-    n, cx0, cx1 = len(BARS), s * 0.19, s * 0.81
-    pitch = (cx1 - cx0) / (n - 1)
-    bw = pitch * 0.58
-    cy, max_half = s / 2, s * 0.30
-    for i, h in enumerate(BARS):
-        x = cx0 + i * pitch
-        half = max_half * h
-        # vertical heat gradient from the centre line outwards, like the app
-        steps = max(1, int(half))
-        for k in range(steps):
-            col = heat(k / max_half)
-            d.rectangle([x - bw / 2, cy - k - 1, x + bw / 2, cy - k], fill=col)
-            d.rectangle([x - bw / 2, cy + k, x + bw / 2, cy + k + 1], fill=col)
-        # round the tips
-        r = bw / 2
-        d.ellipse([x - r, cy - half - r, x + r, cy - half + r], fill=heat(half / max_half))
-        d.ellipse([x - r, cy + half - r, x + r, cy + half + r], fill=heat(half / max_half))
+    u = lambda v: v * s  # unit -> pixels
+    stroke = u(0.056)
+
+    def line(p, q, col, w=stroke):
+        d.line([u(p[0]), u(p[1]), u(q[0]), u(q[1])], fill=col, width=round(w))
+        for x, y in (p, q):  # round caps
+            d.ellipse([u(x) - w / 2, u(y) - w / 2, u(x) + w / 2, u(y) + w / 2], fill=col)
+
+    def arc(cx, cy, r, a0, a1, col, w=stroke):
+        box = [u(cx - r), u(cy - r), u(cx + r), u(cy + r)]
+        d.arc(box, a0, a1, fill=col, width=round(w))
+        import math
+        for a in (a0, a1):  # round caps
+            x = u(cx) + u(r) * math.cos(math.radians(a)) - (w / 2) * math.cos(math.radians(a))
+            y = u(cy) + u(r) * math.sin(math.radians(a)) - (w / 2) * math.sin(math.radians(a))
+            d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=col)
+
+    cx, cy = 0.5, 0.34  # capsule centre, also the centre of the waves
+    # sound waves, left and right
+    for r, col in ((0.285, CYAN), (0.395, BLUE)):
+        arc(cx, cy, r, -34, 34, col)
+        arc(cx, cy, r, 146, 214, col)
+    # holder, stem, base
+    arc(cx, 0.43, 0.165, 0, 180, INK)
+    line((cx, 0.60), (cx, 0.80), INK)
+    line((0.37, 0.82), (0.63, 0.82), INK)
+    # capsule: black body, pink rim, white grille
+    x0, x1, y0, y1 = 0.385, 0.615, 0.10, 0.575
+    rad = (x1 - x0) / 2
+    d.rounded_rectangle([u(x0), u(y0), u(x1), u(y1)], radius=u(rad), fill=PINK)
+    rim = u(0.045)
+    d.rounded_rectangle([u(x0) + rim, u(y0) + rim, u(x1) - rim, u(y1) - rim], radius=u(rad) - rim, fill=INK)
+    for gy in (0.215, 0.285, 0.355):
+        line((0.46, gy), (0.54, gy), WHITE, w=u(0.03))
     return img.resize((size, size), Image.LANCZOS)
 
 

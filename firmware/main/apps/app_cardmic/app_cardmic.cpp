@@ -669,14 +669,18 @@ void fft(float* re, float* im)
 }
 
 // Analyse the newest 16 ms and paint it as the right-most column.
-void spectrogram_step(bool live, bool muted)
+// One column per 10 ms of audio (the classic speech-analysis hop), so the
+// picture moves at 100 px/s and the 200 px panel shows the last 2 seconds:
+// syllables read as distinct blobs. Columns follow audio time, not frame
+// rate, so a slow frame never stretches or squeezes the picture.
+constexpr uint32_t SPEC_HOP = CARDMIC_SAMPLE_RATE_HZ / 100;
+uint32_t s_col_pos = 0;  // ring index (monotonic) where the last column ended
+
+void spectrogram_column(uint32_t end, int x, bool live, bool muted)
 {
-    if (!s_spec) return;
-    fft_setup();
     static float re[FFT_N], im[FFT_N];
-    uint32_t w = s_ring_w;
     for (int i = 0; i < FFT_N; ++i) {
-        re[i] = s_ring[(w - FFT_N + i) % RING] * s_hann[i];
+        re[i] = s_ring[(end - FFT_N + i) % RING] * s_hann[i];
         im[i] = 0.0f;
     }
     fft(re, im);
@@ -690,17 +694,33 @@ void spectrogram_step(bool live, bool muted)
         db[r]     = 10.0f * log10f(m / (ref * ref) + 1e-12f);
         frame_max = std::max(frame_max, db[r]);
     }
-    // Adaptive ceiling: jumps up on loud input, eases down over ~2 s.
-    s_spec_ceil = std::max(-45.0f, frame_max > s_spec_ceil ? frame_max : s_spec_ceil - 0.25f);
+    // Adaptive ceiling: jumps up on loud input, eases down at 8 dB/s.
+    s_spec_ceil = std::max(-45.0f, frame_max > s_spec_ceil ? frame_max : s_spec_ceil - 0.08f);
     const float floor_db = s_spec_ceil - 55.0f;
 
-    s_spec->scroll(-1, 0);
     for (int r = 0; r < SPEC_H; ++r) {
         float t = std::clamp((db[r] - floor_db) / (s_spec_ceil - floor_db), 0.0f, 1.0f);
         t       = t * t;  // keep the background dark, let speech glow
         uint32_t col = muted ? mix(C_BG, 0x6A1F1F, t) : live ? mix(C_BG, heat(t), std::min(1.0f, t * 3.0f))
                                                            : mix(C_BG, heat(t), std::min(1.0f, t * 3.0f) * 0.5f);
-        s_spec->drawPixel(SPEC_W - 1, SPEC_H - 1 - r, col);
+        s_spec->drawPixel(x, SPEC_H - 1 - r, col);
+    }
+}
+
+void spectrogram_step(bool live, bool muted)
+{
+    if (!s_spec) return;
+    fft_setup();
+    const uint32_t w = s_ring_w;
+    // Fell further behind than the ring holds (e.g. after a busy page): skip ahead.
+    if (w - s_col_pos > RING - FFT_N) s_col_pos = w - (RING - FFT_N);
+    int n = (int)((w - s_col_pos) / SPEC_HOP);
+    n     = std::min(n, SPEC_W);
+    if (n <= 0) return;
+    s_spec->scroll(-n, 0);
+    for (int i = 0; i < n; ++i) {
+        s_col_pos += SPEC_HOP;
+        spectrogram_column(s_col_pos, SPEC_W - n + i, live, muted);
     }
 }
 
@@ -1131,6 +1151,7 @@ void AppCardmic::onOpen()
     }
     if (s_spec) s_spec->fillScreen(TFT_BLACK);
     s_meter = s_peak_hold = 0.0f;
+    s_col_pos = s_ring_w;
 
     s_page       = Page::Main;
     s_set_sel    = 0;

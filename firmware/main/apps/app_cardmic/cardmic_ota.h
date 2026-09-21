@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define CARDMIC_OTA_REPO "Yueze/cardmic"
+#define CARDMIC_OTA_REPO "Yueze/Cardmic"
 #define CARDMIC_OTA_ASSET "cardmic-ota.bin"
 
 typedef enum {
