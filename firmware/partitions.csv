@@ -1,0 +1,9 @@
+# ESP-IDF Partition Table
+# Two app slots so Cardmic can update itself over Wi-Fi (esp_https_ota).
+# nvs keeps its offset, so saved settings and Wi-Fi survive the change.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x4000,
+otadata,  data, ota,     0xd000,   0x2000,
+phy_init, data, phy,     0xf000,   0x1000,
+ota_0,    app,  ota_0,   0x10000,  0x3E0000,
+ota_1,    app,  ota_1,   0x3F0000, 0x3E0000,

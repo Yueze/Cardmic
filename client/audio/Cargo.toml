@@ -1,0 +1,10 @@
+[package]
+name = "cardmic-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cardmic-core.workspace = true
+cpal.workspace = true
+if-addrs = "0.15.0"

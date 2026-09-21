@@ -1,0 +1,20 @@
+.DS_Store
+.vscode/
+.idea/
+
+# Rust
+client/target/
+
+# ESP-IDF
+firmware/build/
+firmware/managed_components/
+firmware/components/
+firmware/sdkconfig
+firmware/sdkconfig.old
+
+# Release staging
+dist/
+
+# Never commit credentials
+*.local.h
+wifi_credentials*

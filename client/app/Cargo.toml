@@ -1,0 +1,16 @@
+[package]
+name = "cardmic"
+description = "Use an M5Stack Cardputer ADV as a wireless microphone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cardmic"
+path = "src/main.rs"
+
+[dependencies]
+cardmic-core.workspace = true
+cardmic-audio = { path = "../audio" }
+cpal.workspace = true
+if-addrs = "0.15"
