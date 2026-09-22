@@ -35,13 +35,16 @@ static void fail(const char *msg)
     ESP_LOGW(TAG, "%s", msg);
 }
 
-// "v0.5.1" / "0.5.1-dirty" -> comparable integer. Missing parts count as 0.
-static long version_key(const char *v)
+// "v0.5.1" / "0.6.0-beta.1" -> comparable integer. Missing parts count as 0.
+// A pre-release ("-anything") ranks below the release of the same number, so
+// a device on 0.6.0-beta.1 still updates to 0.6.0.
+static long long version_key(const char *v)
 {
     if (*v == 'v' || *v == 'V') v++;
     int a = 0, b = 0, c = 0;
     sscanf(v, "%d.%d.%d", &a, &b, &c);
-    return (long)a * 1000000L + b * 1000L + c;
+    const bool pre = strchr(v, '-') != NULL;
+    return ((long long)a * 1000000LL + b * 1000LL + c) * 2 + (pre ? 0 : 1);
 }
 
 static esp_err_t http_init(esp_http_client_handle_t client)

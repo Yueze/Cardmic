@@ -129,7 +129,7 @@ void Hal::keyboard_init()
 {
     mclog::tagInfo(_tag, "keyboard init");
 
-    _keyboard_ready = keyboard.init();
+    _keyboard_ready = isOriginalCardputer() ? keyboard.initMatrix() : keyboard.init();
     if (!_keyboard_ready) {
         mclog::tagError(_tag, "keyboard init failed");
         return;

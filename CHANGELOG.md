@@ -21,10 +21,18 @@
   "CABLE Output") is not. It now pairs such devices and tells you which one
   to pick as the microphone.
 - **Browser installer** at https://yueze.github.io/Cardmic/.
-- **"Keyboard not found" screen.** On a device without the ADV's keyboard
-  controller (such as the original Cardputer) the firmware used to boot to a
-  launcher that ignored every key, which looked like a freeze (#1). It now
-  says so, retries every second, and G0 continues anyway.
+- **Original Cardputer (experimental).** The firmware now detects the model at
+  boot. On the original Cardputer it scans the GPIO key matrix instead of the
+  ADV's TCA8418 keyboard chip, and Cardmic records from the PDM microphone
+  instead of the ES8311 codec; the IMU, LoRa and GPS apps are hidden. Before,
+  the launcher came up but ignored every key, which looked like a freeze (#1).
+  Both paths follow M5Stack's own firmware for that board but are not yet
+  tested on hardware.
+- **"Keyboard not found" screen** for any other device, instead of a
+  launcher that silently ignores keys.
+- About shows the model (Cardputer ADV or Cardputer).
+- Update check: a pre-release (e.g. 0.6.0-beta.1) now ranks below the
+  release of the same number, so beta testers still get the final version.
 
 ## 0.5.2 — 2026-09-22
 

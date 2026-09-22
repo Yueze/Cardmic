@@ -33,6 +33,9 @@ public:
     // Cardmic: false when the TCA8418 keyboard did not answer at boot (e.g. an
     // original Cardputer, which has a different keyboard). Retry re-probes it.
     bool isKeyboardReady() const { return _keyboard_ready; }
+    // Cardmic: true on the original Cardputer (GPIO-matrix keyboard, PDM mic,
+    // no IMU or cap header). Detected by M5GFX at boot.
+    bool isOriginalCardputer() const { return M5.getBoard() == m5::board_t::board_M5Cardputer; }
     bool retryKeyboardInit();
     std::vector<uint8_t> getDeviceMac();
     std::string getDeviceMacString();

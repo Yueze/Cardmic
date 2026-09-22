@@ -21,7 +21,10 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # Never publish a pre-release to the installer.
+    if: >-
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      !(github.event_name == 'release' && github.event.release.prerelease)
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -14,10 +14,9 @@
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
 
-// Cardmic: this firmware is for the Cardputer ADV, whose keyboard is a
-// TCA8418 controller. On an original Cardputer the keyboard never answers and
-// the launcher looks frozen, so say what is wrong instead. Retries every
-// second (in case of a transient I2C hiccup); G0 continues anyway.
+// Cardmic: the keyboard did not answer (not a Cardputer ADV or original
+// Cardputer, or the ADV's keyboard controller failed to start). Without this
+// the launcher would look frozen. Retries every second; G0 continues anyway.
 static void keyboard_missing_notice()
 {
     auto& d = M5.Display;
@@ -31,9 +30,9 @@ static void keyboard_missing_notice()
     d.setTextColor(TFT_WHITE);
     const char* lines[] = {
         "This firmware is for the",
-        "M5Stack Cardputer ADV only.",
-        "Original Cardputer? Use",
-        "M5Burner to restore it.",
+        "M5Stack Cardputer ADV and",
+        "the original Cardputer.",
+        "Other devices: use M5Burner.",
     };
     for (int i = 0; i < 4; ++i) d.drawString(lines[i], 8, 34 + i * 16);
     d.setTextColor(0x99FF00);
@@ -73,7 +72,10 @@ extern "C" void app_main(void)
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
     ui_hal::on_get_tick([]() { return GetHAL().millis(); });
 
-    // Install apps
+    // Install apps. The IMU, LoRa and GPS apps need ADV hardware; on the
+    // original Cardputer the LoRa/GPS pins are keyboard lines, so opening
+    // them would break the keyboard until a reboot.
+    const bool adv = !GetHAL().isOriginalCardputer();
     GetMooncake().installApp(std::make_unique<Launcher>());
     GetMooncake().installApp(std::make_unique<AppCardmic>());
     GetMooncake().installApp(std::make_unique<AppWifiScan>());
@@ -84,11 +86,11 @@ extern "C" void app_main(void)
     GetMooncake().installApp(std::make_unique<AppSetWiFi>());
     GetMooncake().installApp(std::make_unique<AppClock>());
     GetMooncake().installApp(std::make_unique<AppKeyboard>());
-    GetMooncake().installApp(std::make_unique<AppImu>());
+    if (adv) GetMooncake().installApp(std::make_unique<AppImu>());
     GetMooncake().installApp(std::make_unique<AppSdcard>());
     GetMooncake().installApp(std::make_unique<AppStringIRToolKit>());
-    GetMooncake().installApp(std::make_unique<AppLoraChat>());
-    GetMooncake().installApp(std::make_unique<AppGPS>());
+    if (adv) GetMooncake().installApp(std::make_unique<AppLoraChat>());
+    if (adv) GetMooncake().installApp(std::make_unique<AppGPS>());
     // GetMooncake().installApp(std::make_unique<AppDummy>());
 
     // Main loop

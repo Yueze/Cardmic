@@ -29,6 +29,13 @@ public:
     mclog::Signal<const KeyEvent_t&> onKeyEvent;
 
     bool init();
+    // Cardmic: the original Cardputer has no TCA8418; its keys are a GPIO
+    // matrix (3 outputs through a 74HC138, 7 inputs). Same key layout.
+    bool initMatrix();
+    bool isMatrix() const
+    {
+        return _matrix;
+    }
     void update();
     inline uint8_t getModifierMask()
     {
@@ -55,4 +62,14 @@ private:
     KeyEventRaw_t get_key_event_raw(const uint8_t& eventRaw);
     void remap(KeyEventRaw_t& key);
     void update_modifier_mask(const KeyEventRaw_t& key);
+
+    // GPIO matrix backend (original Cardputer).
+    bool _matrix             = false;
+    uint64_t _matrix_raw     = 0;  // last scan, bit = row * 14 + col
+    uint64_t _matrix_stable  = 0;  // debounced state
+    uint32_t _matrix_scan_at = 0;
+    uint64_t _matrix_reported = 0;  // state already turned into events
+    uint64_t matrix_scan();
+    void matrix_update();
+    void emit_raw(KeyEventRaw_t key);
 };

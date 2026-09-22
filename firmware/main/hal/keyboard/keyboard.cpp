@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "keyboard.h"
+#include "esp_timer.h"
 #include "../hal_config.h"
 #include <mooncake_log.h>
 
@@ -52,6 +53,11 @@ void Keyboard::update()
 {
     clearKeyEvent();
 
+    if (_matrix) {
+        matrix_update();
+        return;
+    }
+
     if (!_isr_flag) {
         return;
     }
@@ -67,15 +73,87 @@ void Keyboard::update()
     }
 
     remap(_key_event_raw_buffer);
-    // mclog::tagDebug(_tag, "key event raw: ({}, {}): {}", _key_event_raw_buffer.row, _key_event_raw_buffer.col,
-    //                 _key_event_raw_buffer.state);
+    emit_raw(_key_event_raw_buffer);
+}
+
+void Keyboard::emit_raw(KeyEventRaw_t key)
+{
+    _key_event_raw_buffer = key;
     onKeyEventRaw.emit(_key_event_raw_buffer);
 
     update_modifier_mask(_key_event_raw_buffer);
     _key_event_buffer = convertToKeyEvent(_key_event_raw_buffer);
-    // mclog::tagDebug(_tag, "key event: ({}) {} {}", (int)_key_event_buffer.keyCode, _key_event_buffer.keyName,
-    //                 _key_event_buffer.state);
     onKeyEvent.emit(_key_event_buffer);
+}
+
+/* ------------------------- original Cardputer matrix ------------------------ */
+// Ported from M5Stack's factory firmware for the original Cardputer
+// (M5Cardputer-UserDemo, branch main, hal/keyboard), MIT.
+
+static const int MATRIX_OUT[3] = {8, 9, 11};                // 74HC138 A0..A2
+static const int MATRIX_IN[7]  = {13, 15, 3, 4, 5, 6, 7};  // active low, pulled up
+
+bool Keyboard::initMatrix()
+{
+    mclog::tagInfo(_tag, "init gpio matrix (original Cardputer)");
+    for (int pin : MATRIX_OUT) {
+        gpio_reset_pin((gpio_num_t)pin);
+        gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)pin, 0);
+    }
+    for (int pin : MATRIX_IN) {
+        gpio_reset_pin((gpio_num_t)pin);
+        gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
+        gpio_set_pull_mode((gpio_num_t)pin, GPIO_PULLUP_ONLY);
+    }
+    _matrix        = true;
+    _matrix_raw      = 0;
+    _matrix_stable   = 0;
+    _matrix_reported = 0;
+    return true;
+}
+
+uint64_t Keyboard::matrix_scan()
+{
+    uint64_t state = 0;
+    for (int i = 0; i < 8; ++i) {
+        gpio_set_level((gpio_num_t)MATRIX_OUT[0], i & 1);
+        gpio_set_level((gpio_num_t)MATRIX_OUT[1], (i >> 1) & 1);
+        gpio_set_level((gpio_num_t)MATRIX_OUT[2], (i >> 2) & 1);
+        for (int j = 0; j < 7; ++j) {
+            if (gpio_get_level((gpio_num_t)MATRIX_IN[j]) == 0) {
+                // Same coordinates as the TCA8418 path after remap():
+                // rows 0..3 top to bottom, columns 0..13 left to right.
+                int col = (i > 3) ? j * 2 : j * 2 + 1;
+                int row = 3 - (i & 3);
+                state |= 1ULL << (row * 14 + col);
+            }
+        }
+    }
+    return state;
+}
+
+void Keyboard::matrix_update()
+{
+    // Scan every 5 ms; a change counts once two scans agree (debounce).
+    // One key event per update() call, like the TCA8418 path.
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    if (now - _matrix_scan_at >= 5) {
+        _matrix_scan_at = now;
+        uint64_t raw = matrix_scan();
+        uint64_t agreed = ~(raw ^ _matrix_raw);  // bits equal in this and the last scan
+        _matrix_raw = raw;
+        _matrix_stable = (_matrix_stable & ~agreed) | (raw & agreed);
+    }
+    uint64_t changed = _matrix_reported ^ _matrix_stable;
+    if (!changed) return;
+    int bit = __builtin_ctzll(changed);
+    _matrix_reported ^= 1ULL << bit;
+    KeyEventRaw_t key;
+    key.row   = bit / 14;
+    key.col   = bit % 14;
+    key.state = (_matrix_stable >> bit) & 1;
+    emit_raw(key);
 }
 
 Keyboard::KeyEventRaw_t Keyboard::get_key_event_raw(const uint8_t& eventRaw)

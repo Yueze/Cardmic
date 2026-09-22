@@ -28,6 +28,7 @@
 #include <assets.h>
 #include <hal.h>
 #include <M5Unified.hpp>
+#include <driver/i2s_pdm.h>
 #include <driver/i2s_std.h>
 #include <esp_app_desc.h>
 #include <esp_netif.h>
@@ -87,6 +88,11 @@ const char* version() { return esp_app_get_description()->version; }
 constexpr uint8_t ES8311_ADDR = 0x18;
 constexpr float MIC_HPF_HZ    = 100.0f;
 constexpr int32_t GAIN_MULT[] = {1, 2, 4};  // LOW / MID / HIGH (MID = tuned default)
+// The ADV's ES8311 already amplifies by +30 dB (PGA); the original Cardputer's
+// PDM microphone has no preamp, so its samples get this much more digital gain
+// (M5Unified's default "magnification" for PDM mics). Not yet tuned on hardware.
+constexpr int32_t PDM_BASE_GAIN = 16;
+int32_t s_base_gain           = 1;
 const char* const GAIN_NAME[] = {"LOW", "MID", "HIGH"};
 
 enum class WifiState { NotConfigured, Connecting, Connected, Failed };
@@ -252,6 +258,37 @@ bool i2s_mic_start()
     return true;
 }
 
+// Original Cardputer: SPM1423 PDM microphone, clock on G43, data on G46 (the
+// same pins the ADV uses for I2S WS/DIN). PDM RX exists only on I2S0.
+bool pdm_mic_start()
+{
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    chan_cfg.dma_desc_num      = 8;
+    chan_cfg.dma_frame_num     = 64;
+    if (i2s_new_channel(&chan_cfg, nullptr, &s_rx) != ESP_OK) {
+        return false;
+    }
+    i2s_pdm_rx_config_t pdm_cfg = {
+        .clk_cfg  = I2S_PDM_RX_CLK_DEFAULT_CONFIG(CARDMIC_SAMPLE_RATE_HZ),
+        .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg =
+            {
+                .clk          = GPIO_NUM_43,
+                .din          = GPIO_NUM_46,
+                .invert_flags = {.clk_inv = false},
+            },
+    };
+    // M5Unified reads this microphone from the right slot (its default
+    // input_only_right, not overridden for the Cardputer); the IDF default is left.
+    pdm_cfg.slot_cfg.slot_mask = I2S_PDM_SLOT_RIGHT;
+    if (i2s_channel_init_pdm_rx_mode(s_rx, &pdm_cfg) != ESP_OK || i2s_channel_enable(s_rx) != ESP_OK) {
+        i2s_del_channel(s_rx);
+        s_rx = nullptr;
+        return false;
+    }
+    return true;
+}
+
 void i2s_mic_stop()
 {
     if (s_rx) {
@@ -275,7 +312,7 @@ void audio_task(void*)
         if (i2s_channel_read(s_rx, frame, sizeof(frame), &got, pdMS_TO_TICKS(100)) != ESP_OK || got != sizeof(frame)) {
             continue;
         }
-        const int32_t gain = GAIN_MULT[s_gain_idx];
+        const int32_t gain = GAIN_MULT[s_gain_idx] * s_base_gain;
         uint16_t peak      = 0;
         for (int i = 0; i < CARDMIC_SAMPLES_PER_MS; ++i) {
             int32_t raw = frame[i];
@@ -1175,12 +1212,13 @@ void draw_about()
 
     const esp_app_desc_t* app = esp_app_get_description();
     const esp_partition_t* run = esp_ota_get_running_partition();
-    kv(42, "VERSION", std::string("v") + app->version, C_ACCENT);
-    kv(56, "SLOT", run ? run->label : "--");
-    kv(70, "BUILT", std::string(app->date) + " " + std::string(app->time).substr(0, 5));
+    kv(38, "VERSION", std::string("v") + app->version, C_ACCENT);
+    kv(50, "MODEL", GetHAL().isOriginalCardputer() ? "Cardputer" : "Cardputer ADV");
+    kv(62, "SLOT", run ? run->label : "--");
+    kv(74, "BUILT", std::string(app->date) + " " + std::string(app->time).substr(0, 5));
 
     // Update status line.
-    const int y = 86;
+    const int y = 87;
     std::string latest = cardmic_ota_latest();
     switch (cardmic_ota_state()) {
         case CARDMIC_OTA_IDLE:
@@ -1410,7 +1448,10 @@ void AppCardmic::onOpen()
     GetHAL().speaker.end();
     GetHAL().mic.end();
 
-    bool audio_ok = es8311_enable_mic() && i2s_mic_start();
+    // ADV: ES8311 codec over I2S. Original Cardputer: PDM microphone.
+    const bool original = GetHAL().isOriginalCardputer();
+    s_base_gain         = original ? PDM_BASE_GAIN : 1;
+    bool audio_ok       = original ? pdm_mic_start() : (es8311_enable_mic() && i2s_mic_start());
     if (!audio_ok) {
         mclog::tagError(getAppInfo().name, "mic init failed");
     }

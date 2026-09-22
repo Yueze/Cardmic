@@ -11,8 +11,11 @@ released under the MIT License as stated in its source headers
 Cardmic's own code lives in `firmware/main/apps/app_cardmic/` plus small,
 marked changes to `firmware/CMakeLists.txt`, `firmware/partitions.csv`,
 `firmware/sdkconfig.defaults`, `firmware/main/main.cpp`,
-`firmware/main/apps/apps.h` and `firmware/main/hal/hal.{h,cpp}` (keyboard
-presence check). Everything else is upstream code, kept as is.
+`firmware/main/apps/apps.h`, `firmware/main/hal/hal.{h,cpp}` and
+`firmware/main/hal/keyboard/keyboard.{h,cpp}` (model detection and the
+original Cardputer's GPIO-matrix keyboard, ported from M5Stack's firmware for
+that board, [M5Cardputer-UserDemo](https://github.com/m5stack/M5Cardputer-UserDemo)
+branch `main`, MIT). Everything else is upstream code, kept as is.
 
 The upstream firmware in turn builds on these projects (see their licenses):
 

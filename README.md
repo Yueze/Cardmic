@@ -67,10 +67,13 @@ Network details in the captures are placeholders.</sub>
 
 ## Quick start
 
-> **Cardputer ADV only.** The original Cardputer has a different keyboard and
-> microphone; this firmware boots on it but cannot read its keys (it shows a
-> "Keyboard not found" screen). To restore an original Cardputer, flash
-> M5Stack's firmware for it with [M5Burner](https://docs.m5stack.com/en/download).
+> **Which Cardputer?** Made for the **Cardputer ADV**. The **original
+> Cardputer** is supported from 0.6.0 as *experimental*: it has a different
+> keyboard (a GPIO matrix instead of the ADV's TCA8418 chip) and a PDM
+> microphone instead of the ES8311 codec, and those two paths are ported from
+> M5Stack's own firmware but not yet tested on the hardware. The firmware
+> detects the model at boot; on the original, the IMU, LoRa and GPS apps are
+> hidden because that hardware is missing. Reports welcome.
 
 **1. Install the firmware (once).** Open the
 **[browser installer](https://yueze.github.io/Cardmic/)** in Chrome or Edge,
