@@ -10,8 +10,9 @@ released under the MIT License as stated in its source headers
 
 Cardmic's own code lives in `firmware/main/apps/app_cardmic/` plus small,
 marked changes to `firmware/CMakeLists.txt`, `firmware/partitions.csv`,
-`firmware/sdkconfig.defaults`, `firmware/main/main.cpp` and
-`firmware/main/apps/apps.h`. Everything else is upstream code, kept as is.
+`firmware/sdkconfig.defaults`, `firmware/main/main.cpp`,
+`firmware/main/apps/apps.h` and `firmware/main/hal/hal.{h,cpp}` (keyboard
+presence check). Everything else is upstream code, kept as is.
 
 The upstream firmware in turn builds on these projects (see their licenses):
 

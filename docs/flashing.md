@@ -10,7 +10,8 @@ keep the stock boot screen, launcher and every stock app. You flash over USB
 
 ## What you need
 
-- An M5Stack **Cardputer ADV**
+- An M5Stack **Cardputer ADV**. Not the original Cardputer: its keyboard and
+  microphone are different parts, and this firmware cannot read that keyboard.
 - A USB-C cable **that carries data**. Many cables only charge. If your
   computer never sees the device, try another cable first.
 - Python 3 with esptool: `pip install esptool`
@@ -52,6 +53,9 @@ switch to ON, and pick **Cardmic** in the launcher.
 
 ## Troubleshooting
 
+- **The launcher shows but ignores every key, or you see "Keyboard not
+  found".** This is an original Cardputer, not an ADV. Restore it with
+  M5Stack's firmware for the original Cardputer from M5Burner.
 - **No serial port appears.** Use a data cable, and a port directly on the
   computer rather than a hub. On macOS, `ioreg -p IOUSB` should list an
   "USB JTAG/serial debug unit" while the device is in download mode.

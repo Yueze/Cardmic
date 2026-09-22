@@ -21,6 +21,10 @@
   "CABLE Output") is not. It now pairs such devices and tells you which one
   to pick as the microphone.
 - **Browser installer** at https://yueze.github.io/Cardmic/.
+- **"Keyboard not found" screen.** On a device without the ADV's keyboard
+  controller (such as the original Cardputer) the firmware used to boot to a
+  launcher that ignored every key, which looked like a freeze (#1). It now
+  says so, retries every second, and G0 continues anyway.
 
 ## 0.5.2 — 2026-09-22
 

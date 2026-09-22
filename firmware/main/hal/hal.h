@@ -29,6 +29,11 @@ public:
         return m5gfx::millis();
     }
     void feedTheDog();
+
+    // Cardmic: false when the TCA8418 keyboard did not answer at boot (e.g. an
+    // original Cardputer, which has a different keyboard). Retry re-probes it.
+    bool isKeyboardReady() const { return _keyboard_ready; }
+    bool retryKeyboardInit();
     std::vector<uint8_t> getDeviceMac();
     std::string getDeviceMacString();
 
@@ -140,6 +145,7 @@ private:
     bool _is_wifi_connected         = false;
     bool _is_esp_now_inited         = false;
     bool _is_ir_inited              = false;
+    bool _keyboard_ready            = false;
     bool _is_ble_keyboard_inited    = false;
     bool _is_usb_keyboard_inited    = false;
     bool _is_sd_card_mounted        = false;

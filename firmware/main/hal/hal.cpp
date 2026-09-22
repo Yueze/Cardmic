@@ -129,10 +129,17 @@ void Hal::keyboard_init()
 {
     mclog::tagInfo(_tag, "keyboard init");
 
-    if (!keyboard.init()) {
+    _keyboard_ready = keyboard.init();
+    if (!_keyboard_ready) {
         mclog::tagError(_tag, "keyboard init failed");
         return;
     }
+}
+
+bool Hal::retryKeyboardInit()
+{
+    if (!_keyboard_ready) _keyboard_ready = keyboard.init();
+    return _keyboard_ready;
 }
 
 /* -------------------------------------------------------------------------- */
