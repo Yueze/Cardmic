@@ -35,6 +35,7 @@
   .legend { font: 500 9.5px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--legend); }
   .data { font: 12.5px/1.2 var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
   .data .unit { font: 10px var(--sans); color: var(--legend); margin-left: 3px; }
+  .lock { display: inline-block; width: 9px; height: 11px; margin-left: 6px; vertical-align: -1px; }
   .data.live { color: var(--accent); } .data.none { color: var(--dim); } .data.warn { color: var(--warn); }
 
   /* Title bar: on macOS the traffic lights sit at its left. */
@@ -46,13 +47,6 @@
   .light i { width: 7px; height: 7px; border-radius: 50%; background: #333; display: block; position: relative; }
   .light.on { color: var(--accent); } .light.on i { background: var(--accent); }
   .light.warn { color: var(--warn); } .light.warn i { background: var(--warn); }
-  .light.flow i::after {
-    content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid var(--accent);
-    animation: breathe 1s ease-in-out infinite alternate;
-  }
-  @keyframes breathe { from { opacity: 0.15; } to { opacity: 0.8; } }
-  .blink i { animation: blink 0.7s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0.15; } }
 
   main { flex: 1; padding: 0 16px; display: flex; flex-direction: column; min-height: 0; }
 
@@ -95,7 +89,9 @@
   }
   button:hover { background: #1c1c1c; }
   button:active { background: #232323; }
-  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid rgba(153,255,0,0.45); outline-offset: 1px; }
+  button:focus, select:focus, input:focus { outline: none; }
+  button:focus-visible, select:focus-visible { box-shadow: 0 0 0 2px rgba(255,255,255,0.18); }
+  #code:focus { border-color: #4a4a4a; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
   button.primary:hover { background: #b0ff3a; }
   button.link { background: none; border: none; color: var(--legend); padding: 3px 4px; font-weight: 400; }
@@ -183,7 +179,7 @@
       <div class="row">
         <span class="legend">Pairing</span>
         <div class="v" id="pairView"><span class="data" id="pairText">—</span></div>
-        <span id="pairButtons"><button class="link" id="forget">Forget</button> <button id="pairBtn">Pair…</button></span>
+        <span id="pairButtons"><button class="link" id="forget">Unpair</button> <button id="pairBtn">Enter code</button></span>
         <div class="v" id="pairEditor">
           <input id="code" maxlength="14" placeholder="XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
           <span style="flex:1"></span>
@@ -400,11 +396,13 @@
     mic_denied: () => ["Microphone access is off", "Open Settings", () => send("open", "privacy")],
     busy: () => ["Another Cardmic is receiving", "Try Again", () => send("retry")],
     failed: (s) => [s.detail || "Something went wrong", "Try Again", () => send("retry")],
-    wrong_code: () => ["The pairing code changed", "Pair…", () => openEditor()],
-    needs_pairing: () => ["This Cardputer requires pairing", "Pair…", () => openEditor()],
+    wrong_code: () => ["The pairing code changed", "Enter code", () => openEditor()],
+    needs_pairing: () => ["This Cardputer needs pairing", "Enter code", () => openEditor()],
   };
   let fixAction = null;
 
+  // A small padlock: the link is encrypted (the device and this computer are paired).
+  const LOCK = '<svg class="lock" viewBox="0 0 9 11" aria-label="encrypted"><path d="M2 5V3.3a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="0.5" y="5" width="8" height="5.5" rx="1.2" fill="currentColor"/></svg>';
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   // Updates arrive ~33 times a second; write to the page only what changed.
@@ -433,7 +431,7 @@
     const usb = $("usbLight"), wl = $("wifiLight");
     put(usb, "class", "light legend" + (s.usb ? " on" : ""));
     const seeking = s.phase === "searching" || s.phase === "starting";
-    put(wl, "class", "light legend" + (!s.wifi ? "" : live ? " on" + ((s.level || 0) > 0.002 ? " flow" : "") : seeking ? " warn blink" : " warn"));
+    put(wl, "class", "light legend" + (!s.wifi ? "" : live ? " on" : seeking ? "" : " warn"));
 
     const word = {
       connected: ["LIVE", COL.accent], searching: ["SEARCH", COL.dim], starting: ["WAIT", COL.dim],
@@ -443,13 +441,13 @@
     dots($("word"), word[0], 4, word[1]);
 
     // Readouts: data only, each under its legend.
-    const setData = (el, value, cls, unit) => {
-      put(el, "html", value === null ? "—" : esc(value) + (unit ? `<span class="unit">${unit}</span>` : ""));
+    const setData = (el, value, cls, unit, lock) => {
+      put(el, "html", value === null ? "—" : esc(value) + (unit ? `<span class="unit">${unit}</span>` : "") + (lock ? LOCK : ""));
       put(el, "class", "data " + (value === null ? "none" : cls || ""));
     };
     setData($("rDevice"), live || usbLive ? (s.device_name || (live ? s.device : "Cardputer")) : null, live || usbLive ? "live" : "");
     put($("rDevice"), "title", live ? s.device : "");
-    setData($("rLink"), live ? (s.encrypted ? "Encrypted" : "Open") : usbLive ? "USB" : seeking && s.wifi ? "Searching" : !s.wifi ? "Off" : null, live ? (s.encrypted ? "live" : "warn") : usbLive ? "live" : "");
+    setData($("rLink"), live ? "Wi-Fi" : usbLive ? "USB" : seeking && s.wifi ? "Searching" : !s.wifi ? "Off" : null, live ? (s.encrypted ? "live" : "warn") : usbLive ? "live" : "", undefined, live && s.encrypted);
     setData($("rLatency"), live ? String(Math.round(s.buffer_ms || 0)) : null, "", "ms");
     setData($("rLoss"), live ? (s.loss_pct || 0).toFixed(1) : null, (s.loss_pct || 0) > 1 ? "warn" : "", "%");
 
@@ -489,10 +487,10 @@
     }
     out.disabled = !(s.outputs || []).length;
 
-    put($("pairText"), "text", s.paired_over_usb ? "Paired over USB" : s.paired ? (live && s.encrypted ? "Paired, encrypted" : "Paired") : "Not paired");
+    put($("pairText"), "html", s.paired_over_usb ? "Paired over USB" + LOCK : s.paired ? "Paired" + LOCK : "Not paired");
     put($("pairText"), "class", "data " + (s.paired ? "live" : "none"));
     $("forget").classList.toggle("hidden", !s.paired);
-    put($("pairBtn"), "text", s.paired ? "Change…" : "Pair…");
+    put($("pairBtn"), "text", s.paired ? "New code" : "Enter code");
     $("pairButtons").classList.toggle("hidden", editing);
 
     put($("loginLabel"), "text", s.platform === "win" ? "Start with Windows" : "Open at login");
