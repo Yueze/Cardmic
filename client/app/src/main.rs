@@ -311,7 +311,12 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut nonce_counter = 0u64;
     let mut warned_plain = false;
 
-    let socket = net::bind().map_err(|e| format!("cannot bind UDP port 41234: {e}"))?;
+    let socket = net::bind().map_err(|e| match e.kind() {
+        std::io::ErrorKind::AddrInUse => "another `cardmic run` is already running on this computer \
+             (UDP port 41234 is in use). Close it, or keep using that one."
+            .to_string(),
+        _ => format!("cannot bind UDP port 41234: {e}"),
+    })?;
     let targets = net::discovery_targets(&opts.devices);
     println!("Searching for a Cardputer ({} discovery target(s))...", targets.len());
 
