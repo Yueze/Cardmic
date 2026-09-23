@@ -8,7 +8,7 @@
  * espressif/tinyusb component and is compiled out unless its own sources see
  * CFG_TUD_AUDIO=1.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "cardmic_usb.h"
 

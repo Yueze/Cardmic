@@ -17,7 +17,7 @@
  * port is answered with the full 240x135 screen as CMSS packets, sent from an
  * ephemeral port to the requester. See protocol/PROTOCOL.md.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

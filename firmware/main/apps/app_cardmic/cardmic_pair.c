@@ -1,7 +1,7 @@
 /*
  * Cardmic pairing codes and key derivation. See cardmic_pair.h.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "cardmic_pair.h"
 

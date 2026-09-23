@@ -8,7 +8,7 @@
  * image is written to the idle OTA slot; if it fails to boot, the bootloader
  * rolls back to the previous one.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

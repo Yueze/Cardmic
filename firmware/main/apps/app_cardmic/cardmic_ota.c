@@ -1,7 +1,7 @@
 /*
  * Cardmic over-the-air updates from GitHub Releases. See cardmic_ota.h.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "cardmic_ota.h"
 

@@ -12,7 +12,7 @@
  * and a brief Matrix rain when the app opens. Laid out for the 204 x 109 app canvas --
  * the stock system bar and keyboard bar keep the rest of the screen.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app_cardmic.h"
 #include "cardmic_net.h"

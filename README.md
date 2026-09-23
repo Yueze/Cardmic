@@ -13,7 +13,7 @@
   <a href="https://github.com/Yueze/Cardmic/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Yueze/Cardmic?color=99ff00&labelColor=111"></a>
   <a href="https://github.com/Yueze/Cardmic/actions/workflows/firmware.yml"><img alt="Firmware" src="https://img.shields.io/github/actions/workflow/status/Yueze/Cardmic/firmware.yml?label=firmware&labelColor=111"></a>
   <a href="https://github.com/Yueze/Cardmic/actions/workflows/client.yml"><img alt="Client" src="https://img.shields.io/github/actions/workflow/status/Yueze/Cardmic/client.yml?label=client&labelColor=111"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f6bff?labelColor=111"></a>
+  <a href="LICENSE"><img alt="Apache 2.0 License" src="https://img.shields.io/badge/license-Apache--2.0-2f6bff?labelColor=111"></a>
 </p>
 
 <p align="center">
@@ -195,6 +195,10 @@ Issues and pull requests are welcome.
 
 ## License
 
-[MIT](LICENSE). The firmware is a fork of M5Stack's MIT-licensed factory
-firmware; see [NOTICE.md](NOTICE.md) for third-party credits. Cardmic is an
+[Apache License 2.0](LICENSE), from version 0.6.0. Releases up to
+0.6.0-beta.2 were published under the MIT License and remain so.
+
+The firmware is a fork of M5Stack's MIT-licensed factory firmware: its files
+keep their MIT license (see their headers), and Cardmic's own code is under
+Apache 2.0. See [NOTICE.md](NOTICE.md) for third-party credits. Cardmic is an
 independent project, not affiliated with M5Stack.

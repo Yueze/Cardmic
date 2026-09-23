@@ -2,7 +2,7 @@
  * Cardmic development console (CARDMIC_DEV_TOOLS builds only).
  * See dev_console.cpp for the command set.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

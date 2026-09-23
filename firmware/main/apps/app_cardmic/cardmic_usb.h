@@ -2,7 +2,7 @@
  * Cardmic: USB Audio Class microphone (16 kHz, mono, 16-bit), driverless on
  * macOS and Windows.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

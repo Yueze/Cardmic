@@ -4,7 +4,7 @@
  * same keys from it; with pairing on, discovery must carry an HMAC made with
  * those keys and the audio is encrypted with AES-128-GCM. See PROTOCOL.md.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

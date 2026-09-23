@@ -1,7 +1,7 @@
 /*
  * Cardmic WiFi microphone transport. See cardmic_net.h for the wire contract.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "cardmic_net.h"
 

@@ -3,7 +3,7 @@
  * over WiFi to the Cardmic desktop client, using the network saved in the
  * stock "Set WiFi" app.
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 #include <mooncake.h>

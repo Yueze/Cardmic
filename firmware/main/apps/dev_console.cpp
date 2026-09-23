@@ -13,7 +13,7 @@
  *   status                  board, keyboard, Wi-Fi, IP, free heap
  *   reboot | download       restart, or restart into the ROM bootloader
  *
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifdef CARDMIC_DEV_TOOLS
 
