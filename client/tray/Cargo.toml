@@ -24,6 +24,9 @@ tray-icon = "0.25"
 tao = "0.37"
 # The window: HTML drawn by the system's web view (WKWebView, WebView2).
 wry = { version = "0.57", default-features = false }
+# Reading the Cardputer's identity report over USB, to pair by plugging in.
+# Shared: the report is only read, never the device taken over.
+hidapi = { version = "2", default-features = false, features = ["macos-shared-device", "windows-native"] }
 
 [build-dependencies]
 winresource = "0.1"

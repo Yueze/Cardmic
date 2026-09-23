@@ -106,6 +106,14 @@ sequence restarts at 0 for each session.
 Test vectors for code `7K2M9QXB4TPA` are in
 [`client/core/src/pairing.rs`](../client/core/src/pairing.rs).
 
+### Refusals
+
+A Cardputer with pairing on answers a discovery it cannot accept (version 1,
+or version 2 with a tag that does not match its current code) with the
+24-byte datagram `CARDMIC_PAIRING_REQUIRED`, at most once a second. A client
+then knows to ask for the code instead of searching forever. The reply tells
+only that pairing is on, which the device's screen shows anyway.
+
 ## 4. Screenshots
 
 Used to produce the pictures in the docs.
@@ -150,3 +158,26 @@ https://github.com/Yueze/Cardmic/releases/latest/download/cardmic-ota.bin
 reads the version from the image header, and installs the image only if it is
 newer than the running one. A release must therefore attach the app image as
 exactly `cardmic-ota.bin`, built with `PROJECT_VER` set to the release version.
+
+## 6. Pairing over USB
+
+Plugged in, the Cardputer is one USB device with two functions: the USB
+Audio Class microphone and a HID interface. The HID interface carries a
+vendor-defined collection (usage page `0xFF00`, usage `0x01`) with feature
+report ID 3: 63 bytes of ASCII, NUL-padded.
+
+```
+CM1;pair=1;code=7K2M9QXB4TPA;name=Cardmic-05AC;fw=0.6.0
+CM1;pair=0;name=Cardmic-05AC;fw=0.6.0          (pairing off: no code)
+```
+
+`name` is `Cardmic-` plus the last two bytes of the Wi-Fi MAC address. The
+Cardmic app reads this report when a Cardputer is plugged in and stores the
+code, so the computer is paired for Wi-Fi from then on: plugging in is the
+act of trust. With the talk key on, the same interface also carries the
+keyboard (report 1) and mouse (report 2), so no endpoint is added.
+
+USB IDs: vendor `0xCAFE` (a placeholder until a registered one), product
+`0x4015` (microphone), `0x4016` (microphone and talk key); development builds
+`0x4017` and `0x4018` add a serial console.
+

@@ -17,12 +17,20 @@ const SAMPLE_RATE: f32 = 16_000.0;
 /// Columns kept for a reader that has not caught up (4 s).
 const MAX_QUEUED: usize = 400;
 
-/// One column: per band, 0 = at or below its noise floor, 255 = 45 dB above.
-pub type Column = [u8; BANDS];
+/// One column (10 ms).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Column {
+    /// Per band, 0 = at or below its noise floor, 255 = 45 dB above it.
+    pub bands: [u8; BANDS],
+    /// Peak level of these 10 ms: 0 = -60 dBFS or less, 255 = full scale.
+    /// Drives the level meter in step with the picture.
+    pub level: u8,
+}
 
 pub struct Spectrum {
     ring: VecDeque<f32>,
     since_column: usize,
+    peak: f32,
     hann: [f32; FFT_N],
     lo: [usize; BANDS],
     hi: [usize; BANDS],
@@ -55,6 +63,7 @@ impl Spectrum {
         Spectrum {
             ring: VecDeque::with_capacity(FFT_N + 1),
             since_column: 0,
+            peak: 0.0,
             hann,
             lo,
             hi,
@@ -71,10 +80,14 @@ impl Spectrum {
                 self.ring.pop_front();
             }
             self.ring.push_back(s);
+            self.peak = self.peak.max(s.abs());
             self.since_column += 1;
             if self.since_column >= HOP && self.ring.len() == FFT_N {
                 self.since_column -= HOP;
-                let col = self.column();
+                let mut col = self.column();
+                let db = 20.0 * self.peak.max(1e-6).log10();
+                col.level = (((db + 60.0) / 60.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+                self.peak = 0.0;
                 if self.columns.len() == MAX_QUEUED {
                     self.columns.pop_front();
                 }
@@ -89,6 +102,13 @@ impl Spectrum {
     }
 
     fn column(&mut self) -> Column {
+        // Digital silence (a lost packet filled in, or a muted device) says
+        // nothing about the room: keep it black and leave the noise floor
+        // alone, or everything after it looks far too loud until the floor
+        // has crept back up. The device never sees this: its mic always hisses.
+        if self.ring.iter().all(|s| s.abs() < 1e-5) {
+            return Column { bands: [0u8; BANDS], level: 0 };
+        }
         let mut re = [0.0f32; FFT_N];
         let mut im = [0.0f32; FFT_N];
         for (i, (r, s)) in re.iter_mut().zip(self.ring.iter()).enumerate() {
@@ -98,7 +118,7 @@ impl Spectrum {
 
         // Full-scale sine through a Hann window; samples here are -1..1.
         let reference = FFT_N as f32 * 0.5 * 0.5;
-        let mut out = [0u8; BANDS];
+        let mut out = Column { bands: [0u8; BANDS], level: 0 };
         for r in 0..BANDS {
             let mut m = 0.0f32;
             for k in self.lo[r]..=self.hi[r] {
@@ -115,7 +135,7 @@ impl Spectrum {
                 self.floor[r] += 0.015;
             }
             let above = db - self.floor[r] - 7.0; // gate: noise flickers a few dB above its floor
-            out[r] = ((above / 38.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+            out.bands[r] = ((above / 38.0).clamp(0.0, 1.0) * 255.0).round() as u8;
         }
         self.floor_ready = true;
         out
@@ -189,15 +209,46 @@ mod tests {
         s.push(&noise);
         let settled = s.take();
         let recent = &settled[settled.len() - 50..];
-        let mean = recent.iter().flat_map(|c| c.iter()).map(|&v| v as f32).sum::<f32>() / (50 * BANDS) as f32;
+        let mean = recent.iter().flat_map(|c| c.bands.iter()).map(|&v| v as f32).sum::<f32>() / (50 * BANDS) as f32;
         assert!(mean < 30.0, "background mean {mean}");
 
         // Then a 1 kHz tone.
         s.push(&tone(1000.0, 0.3, 1600, 0));
-        let lit = *s.take().last().unwrap();
+        let lit = s.take().last().unwrap().bands;
         let band = (BANDS as f32 * (1000f32 / 100.0).ln() / 80f32.ln()) as usize;
         assert!(lit[band] > 200, "1 kHz band = {}", lit[band]);
         assert!(lit[2] < 60, "100 Hz band should stay dark: {}", lit[2]);
+    }
+
+    #[test]
+    fn level_follows_the_peak() {
+        let mut s = Spectrum::new();
+        s.push(&tone(1000.0, 0.5, 3200, 0)); // -6 dBFS
+        let level = s.take().last().unwrap().level as f32 / 255.0 * 60.0 - 60.0;
+        assert!((level + 6.0).abs() < 1.0, "{level} dB");
+        s.push(&vec![0.0; 1600]);
+        assert_eq!(s.take().last().unwrap().level, 0);
+    }
+
+    #[test]
+    fn digital_silence_does_not_drag_the_floor_down() {
+        let mut s = Spectrum::new();
+        let mut x: u32 = 1;
+        let mut noise = |n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|_| {
+                    x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    ((x >> 8) as f32 / 16_777_216.0 - 0.5) * 0.002
+                })
+                .collect()
+        };
+        s.push(&noise(16_000));
+        s.push(&vec![0.0; 8_000]); // half a second of lost packets
+        s.push(&noise(3_200));
+        let after = s.take();
+        let last = after.last().unwrap();
+        let mean = last.bands.iter().map(|&v| v as f32).sum::<f32>() / BANDS as f32;
+        assert!(mean < 40.0, "room noise after a gap should stay dark, mean {mean}");
     }
 
     #[test]

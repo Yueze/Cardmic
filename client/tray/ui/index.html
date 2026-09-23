@@ -5,182 +5,261 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cardmic</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  body { cursor: default; -webkit-user-select: none; user-select: none; }
-  canvas { display: block; width: 520px; height: 520px; image-rendering: pixelated; }
+  /* Dieter Rams, in the Cardputer's colours: black, one accent, grey legends,
+     a strict grid. Legends are the system face, small and grey; live values
+     are monospaced and bright, so data never reads as a label. */
+  :root {
+    --bg: #000000;
+    --panel: #0a0a0a;
+    --line: #1c1c1c;
+    --text: #ededed;
+    --legend: #7a7a7a;
+    --dim: #5e5e5e;
+    --faint: #262626;
+    --accent: #99ff00;
+    --warn: #ffb020;
+    --mute: #ff5a4a;
+    --field: #151515;
+    --field-line: #2a2a2a;
+    --sans: -apple-system, "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+  body {
+    font: 12px/1.35 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none; user-select: none; cursor: default;
+    display: flex; flex-direction: column;
+  }
+  .legend { font: 500 9.5px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--legend); }
+  .data { font: 12.5px/1.2 var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
+  .data .unit { font: 10px var(--sans); color: var(--legend); margin-left: 3px; }
+  .data.live { color: var(--accent); } .data.none { color: var(--dim); } .data.warn { color: var(--warn); }
+
+  /* Title bar: on macOS the traffic lights sit at its left. */
+  header { height: 36px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; }
+  .mac header { padding-left: 82px; }
+  header .grow { flex: 1; }
+  #version { font: 10px var(--mono); color: var(--dim); }
+  .light { display: inline-flex; align-items: center; gap: 6px; }
+  .light i { width: 7px; height: 7px; border-radius: 50%; background: #333; display: block; position: relative; }
+  .light.on { color: var(--accent); } .light.on i { background: var(--accent); }
+  .light.warn { color: var(--warn); } .light.warn i { background: var(--warn); }
+  .light.flow i::after {
+    content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid var(--accent);
+    animation: breathe 1s ease-in-out infinite alternate;
+  }
+  @keyframes breathe { from { opacity: 0.15; } to { opacity: 0.8; } }
+  .blink i { animation: blink 0.7s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0.15; } }
+
+  main { flex: 1; padding: 0 16px; display: flex; flex-direction: column; min-height: 0; }
+
+  /* The device's spectrogram. */
+  .scope { position: relative; height: 122px; flex: none; border-radius: 8px; overflow: hidden; background: #000; box-shadow: inset 0 0 0 1px var(--line); }
+  .scope canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tick { position: absolute; left: 8px; font: 9px var(--mono); color: var(--dim); transform: translateY(-50%); pointer-events: none; }
+  .tick::before { content: ""; display: inline-block; width: 4px; height: 1px; background: var(--dim); vertical-align: middle; margin-right: 4px; }
+  #message {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; text-align: center; color: var(--legend); pointer-events: none; padding: 0 40px;
+  }
+  #message b { color: var(--text); font-weight: 500; font-size: 13px; }
+  #message.warn b { color: var(--warn); }
+
+  /* State word and meter, as on the device's main screen. */
+  .status { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 14px; height: 30px; flex: none; }
+  .meter { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+  #db { font: 10px var(--mono); color: var(--dim); }
+
+  /* Readouts: legend above value, hairlines between, like an instrument panel. */
+  .readouts { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; margin: 14px 0; flex: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .readouts > div { padding: 8px 0 9px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .readouts > div:first-child { padding-left: 0; }
+  .readouts > div + div { border-left: 1px solid var(--line); }
+  .readouts .data { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Settings: legend on the left, the control on the right. */
+  .card { background: var(--panel); border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); flex: none; }
+  .row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 12px; }
+  .row + .row, .row + #pairing, #pairing + .row { border-top: 1px solid var(--line); }
+  .row > .legend { width: 96px; flex: none; }
+  .row .v { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .note { color: var(--dim); }
+  .row .v.warn { color: var(--warn); }
+
+  button {
+    font: 500 11.5px var(--sans); color: var(--text); background: var(--field);
+    border: 1px solid var(--field-line); border-radius: 6px; padding: 3px 10px; cursor: pointer; flex: none;
+  }
+  button:hover { background: #1c1c1c; }
+  button:active { background: #232323; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid rgba(153,255,0,0.45); outline-offset: 1px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  button.primary:hover { background: #b0ff3a; }
+  button.link { background: none; border: none; color: var(--legend); padding: 3px 4px; font-weight: 400; }
+  button.link:hover { color: var(--text); }
+
+  select {
+    font: 11.5px var(--mono); color: var(--text); background-color: var(--field);
+    border: 1px solid var(--field-line); border-radius: 6px; padding: 3px 24px 3px 9px; max-width: 280px; min-width: 0;
+    -webkit-appearance: none; appearance: none; cursor: pointer; text-overflow: ellipsis;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='10'%3E%3Cpath d='M1 3.5L4 1l3 2.5M1 6.5L4 9l3-2.5' fill='none' stroke='%237a7a7a' stroke-width='1.2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+  }
+
+  .switch { position: relative; width: 30px; height: 18px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch span { position: absolute; inset: 0; border-radius: 99px; background: #2a2a2a; transition: background .15s; pointer-events: none; }
+  .switch span::before { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #d8d8d8; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.5); }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::before { transform: translateX(12px); background: #fff; }
+
+  #pairEditor { display: none; gap: 8px; align-items: center; }
+  .editing #pairEditor { display: flex; }
+  .editing #pairView { display: none; }
+  #code {
+    font: 600 13px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text);
+    background: #050505; border: 1px solid var(--field-line); border-radius: 6px; padding: 4px 8px; width: 150px;
+    -webkit-user-select: text; user-select: text;
+  }
+  #code::placeholder { color: #3a3a3a; }
+  #pairErr { color: var(--mute); font-size: 11px; padding: 0 12px 8px 118px; display: none; }
+  #pairErr.show { display: block; }
+
+  footer { height: 34px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 12px 0 16px; }
+  footer .grow { flex: 1; }
+  .hidden { display: none !important; }
 </style>
-<!-- In the app, the fonts come in as an initialization script instead. -->
+<!-- In the app, the dot-matrix font comes in as an initialization script instead. -->
 <script src="fonts.js"></script>
 </head>
 <body>
-<canvas id="screen"></canvas>
+<header id="bar">
+  <canvas id="brand"></canvas>
+  <span id="version"></span>
+  <span class="grow"></span>
+  <span class="light legend" id="usbLight"><i></i>USB</span>
+  <span class="light legend" id="wifiLight"><i></i>Wi-Fi</span>
+</header>
+
+<main>
+  <div class="scope">
+    <canvas id="spec"></canvas>
+    <span class="tick" id="t4k">4K</span>
+    <span class="tick" id="t1k">1K</span>
+    <span class="tick" id="t250">250</span>
+    <div id="message" class="hidden"><b id="msgTitle"></b><span id="msgDetail"></span></div>
+  </div>
+
+  <div class="status">
+    <canvas id="word"></canvas>
+    <div class="meter"><canvas id="meter"></canvas><span id="db">-60 dB</span></div>
+  </div>
+
+  <div class="readouts">
+    <div><span class="legend">Device</span><span class="data none" id="rDevice">—</span></div>
+    <div><span class="legend">Link</span><span class="data none" id="rLink">—</span></div>
+    <div><span class="legend">Latency</span><span class="data none" id="rLatency">—</span></div>
+    <div><span class="legend">Loss</span><span class="data none" id="rLoss">—</span></div>
+  </div>
+
+  <section class="card">
+    <div class="row hidden" id="fixRow">
+      <span class="legend">Fix</span><div class="v warn" id="fixText"></div><button class="primary" id="fixBtn"></button>
+    </div>
+    <div class="row">
+      <span class="legend">Microphone</span><div class="v data" id="mic">—</div><button id="copy">Copy</button>
+    </div>
+    <div class="row">
+      <span class="legend">Wi-Fi</span><div class="v note">Receive audio over Wi-Fi</div>
+      <label class="switch" title="Receive over Wi-Fi"><input type="checkbox" id="wifi"><span></span></label>
+    </div>
+    <div class="row">
+      <span class="legend">Play into</span><div class="v"><select id="output" title="Where Cardmic plays the Cardputer's audio"></select></div>
+    </div>
+    <div id="pairing">
+      <div class="row">
+        <span class="legend">Pairing</span>
+        <div class="v" id="pairView"><span class="data" id="pairText">—</span></div>
+        <span id="pairButtons"><button class="link" id="forget">Forget</button> <button id="pairBtn">Pair…</button></span>
+        <div class="v" id="pairEditor">
+          <input id="code" maxlength="14" placeholder="XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+          <span style="flex:1"></span>
+          <button id="cancel">Cancel</button><button class="primary" id="pair">Pair</button>
+        </div>
+      </div>
+      <div id="pairErr"></div>
+    </div>
+    <div class="row">
+      <span class="legend" id="loginLabel">Open at login</span><div class="v note">Start Cardmic when you log in</div>
+      <label class="switch"><input type="checkbox" id="login"><span></span></label>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span class="grow"></span>
+  <button class="link" id="help">Help</button>
+  <button class="link" id="updates">Updates</button>
+</footer>
+
 <script>
-  // Page errors go to the app's log (Cardmic.log), for support.
-  window.addEventListener("error", (e) => {
-    if (window.ipc) window.ipc.postMessage("log\t" + e.message + " @" + e.lineno);
-  });
+  // Page errors go to the app's log (Cardmic.log), for support; a few a minute at most.
+  window.__errors = { n: 0, since: Date.now() };
+  window.__report = (msg) => {
+    const e = window.__errors;
+    if (Date.now() - e.since > 60000) { e.n = 0; e.since = Date.now(); }
+    if (++e.n <= 5 && window.ipc) window.ipc.postMessage("log\t" + msg);
+  };
+  window.addEventListener("error", (e) => window.__report(e.message + " @" + e.lineno));
 </script>
 <script>
-/*
- * The Cardmic window, drawn the way the Cardputer draws its screen: a
- * 260x260 grid of device pixels, 2 CSS pixels each, the device's palette and
- * bitmap fonts (glcdfont, DejaVu 12, Orbitron Light 24), its spectrogram and
- * its segmented meter. Rust pushes state ~10 times a second; clicks and keys
- * go back as one-line commands.
- */
 (() => {
-  const S = 2, W = 260, H = 260;
-  const C = {
-    bg: "#000000", text: "#F2F2F2", dim: "#6E6E6E", faint: "#262626", row: "#121212",
-    label: "#B8B8B8", accent: "#99FF00", cyan: "#28F0FF", warn: "#FFB020", mute: "#FF4A4A",
-  };
-
-  const canvas = document.getElementById("screen");
-  const ctx = canvas.getContext("2d");
-  let K = 2;
-  const cache = new Map(); // rendered text, see cached()
-  function resize() {
-    K = S * (window.devicePixelRatio || 1);
-    cache.clear();
-    canvas.width = W * K;
-    canvas.height = H * K;
-    ctx.imageSmoothingEnabled = false;
-  }
-  resize();
-  window.addEventListener("resize", resize);
-
+  const $ = (id) => document.getElementById(id);
   const send = (cmd, arg) => {
     const msg = arg === undefined ? cmd : cmd + "\t" + arg;
     if (window.ipc) window.ipc.postMessage(msg); else console.log("ipc:", msg);
   };
+  const DPR = () => window.devicePixelRatio || 1;
+  const COL = { accent: "#99ff00", text: "#f2f2f2", dim: "#6e6e6e", warn: "#ffb020", faint: "#262626", unlit: "#121212" };
 
-  // ------------------------------------------------------------ drawing
-
-  // `g` is where pixels go: the screen, or a text cache while one is filled.
-  let g = ctx;
-  const rect = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x * K, y * K, w * K, h * K); };
-  const px = (x, y) => g.fillRect(x * K, y * K, K, K);
-
-  // Rendered text, kept as small images: drawing a string pixel by pixel
-  // every frame costs far more than copying it.
-  function cached(key, x, y, w, h, draw) {
-    let img = cache.get(key);
-    if (!img) {
-      if (cache.size > 400) cache.clear();
-      img = document.createElement("canvas");
-      img.width = Math.max(1, w * K); img.height = Math.max(1, h * K);
-      const saved = g;
-      g = img.getContext("2d");
-      draw();
-      g = saved;
-      cache.set(key, img);
-    }
-    ctx.drawImage(img, x * K, y * K);
-  }
-
-  // Pixel circles, as the device draws them.
-  function fillCircle(cx, cy, r, col) {
-    g.fillStyle = col;
-    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r * 0.8) px(cx + x, cy + y);
-  }
-  function drawCircle(cx, cy, r, col) {
-    g.fillStyle = col;
-    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
-      if (Math.abs(Math.sqrt(x * x + y * y) - r) < 0.55) px(cx + x, cy + y);
-    }
-  }
-
-  const FONTS = window.CARDMIC_FONTS;
-  const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-  const font0 = b64(FONTS.font0.data);
-  function gfx(f) {
-    const bits = b64(f.bitmap);
-    let ascent = 0, descent = 0;
-    for (const gl of f.glyphs) { ascent = Math.max(ascent, -gl[5]); descent = Math.max(descent, gl[5] + gl[2]); }
-    return { ...f, bits, ascent, height: ascent + descent };
-  }
-  const DEJAVU = gfx(FONTS.dejavu12), ORBITRON = gfx(FONTS.orbitron24);
-  const ascii = (s) => /^[\x20-\x7e]*$/.test(s);
-
-  // Font0: 6x8 cells, top-left at (x, y).
-  function t0(s, x, y, col) {
-    if (!s) return;
-    cached("0|" + col + "|" + s, x, y, s.length * 6, 8, () => {
-      g.fillStyle = col;
-      for (let i = 0; i < s.length; i++) {
-        const c = s.charCodeAt(i) & 0xff;
-        for (let cx = 0; cx < 5; cx++) {
-          const byte = font0[c * 5 + cx];
-          for (let cy = 0; cy < 8; cy++) if (byte & (1 << cy)) px(i * 6 + cx, cy);
+  // ------------------------------------------------------------ dot matrix
+  // The device's 5x7 font, each pixel drawn as a round dot at full screen
+  // resolution, unlit dots faintly visible like a real LED panel.
+  const font0 = Uint8Array.from(atob(window.CARDMIC_FONTS.font0.data), (c) => c.charCodeAt(0));
+  function dots(canvas, text, pitch, color, unlit = COL.unlit) {
+    const d = DPR(), cols = Math.max(1, text.length * 6 - 1), rows = 7;
+    const w = cols * pitch, h = rows * pitch;
+    if (canvas._key !== text + pitch + color + d) {
+      canvas._key = text + pitch + color + d;
+      canvas.style.width = w + "px"; canvas.style.height = h + "px";
+      canvas.width = Math.round(w * d); canvas.height = Math.round(h * d);
+      const g = canvas.getContext("2d");
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      const r = pitch * 0.4 * d;
+      for (let i = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i) & 0xff;
+        for (let x = 0; x < 5; x++) {
+          const byte = font0[c * 5 + x];
+          for (let y = 0; y < rows; y++) {
+            const lit = byte & (1 << y);
+            if (!lit && !unlit) continue;
+            g.fillStyle = lit ? color : unlit;
+            g.beginPath();
+            g.arc(((i * 6 + x) + 0.5) * pitch * d, (y + 0.5) * pitch * d, r, 0, Math.PI * 2);
+            g.fill();
+          }
         }
       }
-    });
-  }
-  const w0 = (s) => Math.max(0, s.length * 6 - 1);
-  const fit0 = (s, max) => (w0(s) <= max ? s : s.slice(0, Math.max(1, Math.floor((max + 1) / 6) - 2)) + "..");
-
-  // Names in other scripts (扬声器 ...) have no bitmap: the system font draws them.
-  function tsys(s, x, y, col, size) {
-    g.fillStyle = col;
-    g.font = `${size * K}px -apple-system, "Segoe UI", sans-serif`;
-    g.textBaseline = "top";
-    g.fillText(s, x * K, y * K);
-    return x + Math.ceil(g.measureText(s).width / K);
-  }
-
-  // Adafruit GFX fonts, top of the tallest glyph at y.
-  function tg(f, s, x, y, col) {
-    if (!ascii(s)) return tsys(s, x, y - 1, col, f === ORBITRON ? 20 : 11);
-    const w = wg(f, s);
-    cached((f === ORBITRON ? "o|" : "d|") + col + "|" + s, x, y, w + 2, f.height, () => {
-      g.fillStyle = col;
-      let cx = 0;
-      for (const ch of s) {
-        const gl = f.glyphs[ch.charCodeAt(0) - f.first];
-        if (!gl) continue;
-        const [off, gw, gh, xa, xo, yo] = gl;
-        let bit = 0;
-        for (let yy = 0; yy < gh; yy++) for (let xx = 0; xx < gw; xx++, bit++) {
-          const b = off * 8 + bit;
-          if (f.bits[b >> 3] & (0x80 >> (b & 7))) px(cx + xo + xx, f.ascent + yo + yy);
-        }
-        cx += xa;
-      }
-    });
-    return x + w;
-  }
-  function wg(f, s) {
-    if (!ascii(s)) {
-      ctx.font = `${(f === ORBITRON ? 20 : 11) * K}px -apple-system, "Segoe UI", sans-serif`;
-      return Math.ceil(ctx.measureText(s).width / K);
     }
-    let w = 0;
-    for (const ch of s) { const g = f.glyphs[ch.charCodeAt(0) - f.first]; if (g) w += g[3]; }
-    return w;
-  }
-  function fit(f, s, max) {
-    if (wg(f, s) <= max) return s;
-    while (s.length > 1 && wg(f, s + "..") > max) s = s.slice(0, -1);
-    return s + "..";
-  }
-  const right = (f, s, xr, y, col) => tg(f, s, xr - wg(f, s), y, col);
-
-  function keycap(x, y, key, label) {
-    const kw = w0(key) + 5;
-    rect(x, y, kw, 10, C.text);
-    for (const [cx, cy] of [[0, 0], [kw - 1, 0], [0, 9], [kw - 1, 9]]) rect(x + cx, y + cy, 1, 1, C.bg);
-    t0(key, x + 3, y + 1, C.bg);
-    x += kw + 3;
-    t0(label, x, y + 1, C.dim);
-    return x + w0(label) + 7;
   }
 
-  function mix(a, b, t) {
-    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
-    const ch = (sh) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
-    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
-  }
+  // ------------------------------------------------------------ spectrogram
 
+  const SPEC_STOPS = [[0, 0x000000], [0.14, 0x0d1fb0], [0.32, 0x2f6bff], [0.5, 0x28f0ff], [0.68, 0x99ff00], [0.84, 0xffd000], [1, 0xff3b3b]];
+  const HEAT = [[0, 0x1b2a6b], [0.22, 0x2f6bff], [0.42, 0x28f0ff], [0.62, 0x99ff00], [0.8, 0xffd000], [1, 0xff3b3b]];
   function ramp(stops, t) {
     let k = 1;
     while (k < stops.length - 1 && t > stops[k][0]) k++;
@@ -189,309 +268,326 @@
     const ch = (sh) => Math.round(((c0 >> sh) & 255) * (1 - u) + ((c1 >> sh) & 255) * u);
     return [ch(16), ch(8), ch(0)];
   }
-
-  // ------------------------------------------------------------ spectrogram
-
-  // The device's palette: black below the noise floor, then its heat ramp.
-  const SPEC_STOPS = [[0, 0x000000], [0.14, 0x0d1fb0], [0.32, 0x2f6bff], [0.5, 0x28f0ff], [0.68, 0x99ff00], [0.84, 0xffd000], [1, 0xff3b3b]];
   const PALETTE = Array.from({ length: 256 }, (_, i) => ramp(SPEC_STOPS, i / 255));
-  const BANDS = 62, SPEC_W = 256, SPEC_X = 2, SPEC_Y = 22;
-  const spec = document.createElement("canvas");
-  spec.width = SPEC_W; spec.height = BANDS;
-  const sctx = spec.getContext("2d");
-  sctx.fillStyle = "#000"; sctx.fillRect(0, 0, SPEC_W, BANDS);
-  const queue = [];   // columns waiting to scroll in, at 100 per second like the device
-  let specDebt = 0, lastFrame = performance.now();
+  const BANDS = 62, COLS = 244; // 2.44 s at 100 columns per second, like the device's 2 s
+  // History as a ring: each new column overwrites the oldest one in place,
+  // and drawing stitches the two halves. Nothing is copied as it scrolls.
+  const RING = COLS + 1;
+  const hist = document.createElement("canvas");
+  hist.width = RING; hist.height = BANDS;
+  const hctx = hist.getContext("2d");
+  hctx.fillStyle = "#000"; hctx.fillRect(0, 0, RING, BANDS);
+  const colImg = hctx.createImageData(1, BANDS);
+  let head = 0; // ring slot the next column goes into; the oldest column is here too
 
+  const spec = $("spec"), sctx = spec.getContext("2d");
+  function sizeSpec() {
+    const r = spec.getBoundingClientRect(), d = DPR();
+    spec.width = Math.round(r.width * d); spec.height = Math.round(r.height * d);
+    for (const [id, hz] of [["t4k", 4000], ["t1k", 1000], ["t250", 250]]) {
+      const frac = Math.log(hz / 100) / Math.log(80);
+      $(id).style.top = ((1 - frac) * r.height) + "px";
+    }
+  }
+
+  function paintColumn(x, bands) {
+    for (let r = 0; r < BANDS; r++) {
+      const [rr, gg, bb] = PALETTE[bands[r]];
+      const o = (BANDS - 1 - r) * 4;
+      colImg.data[o] = rr; colImg.data[o + 1] = gg; colImg.data[o + 2] = bb; colImg.data[o + 3] = 255;
+    }
+    hctx.putImageData(colImg, x, 0);
+  }
+
+  // Columns arrive in bursts (every 30 ms, and later after a Wi-Fi pause).
+  // The picture runs on its own clock at 100 columns per second, like the
+  // device, 120 ms behind the newest column. The clock speeds up or slows
+  // down by at most a fifth to stay in step; if data is late anyway, it draws
+  // silence rather than stop.
+  const queue = [];
+  let phase = 0, last = performance.now(), gaps = 0;
+  const SILENT = { bands: new Uint8Array(BANDS), level: 0 };
+  const target = () => 12; // 120 ms: enough for the push interval and short Wi-Fi pauses
   function addColumns(hex) {
-    for (let i = 0; i + BANDS * 2 <= hex.length; i += BANDS * 2) {
-      const col = new Uint8Array(BANDS);
-      for (let r = 0; r < BANDS; r++) col[r] = parseInt(hex.substr(i + r * 2, 2), 16);
-      queue.push(col);
+    const n = BANDS + 1;
+    for (let i = 0; i + n * 2 <= hex.length; i += n * 2) {
+      const bands = new Uint8Array(BANDS);
+      for (let r = 0; r < BANDS; r++) bands[r] = parseInt(hex.substr(i + r * 2, 2), 16);
+      queue.push({ bands, level: parseInt(hex.substr(i + BANDS * 2, 2), 16) / 255 });
     }
-    if (queue.length > 60) queue.splice(0, queue.length - 30); // fell behind: skip ahead
+    if (queue.length > 120) queue.splice(0, queue.length - target()); // far behind: skip ahead
   }
-  function scrollSpectrogram(now) {
-    specDebt += (now - lastFrame) / 10;
-    lastFrame = now;
-    const n = Math.min(Math.floor(specDebt), queue.length);
-    if (n <= 0) { if (!queue.length) specDebt = Math.min(specDebt, 1); return; }
-    specDebt -= n;
-    sctx.drawImage(spec, -n, 0);
-    const img = sctx.createImageData(n, BANDS);
-    for (let c = 0; c < n; c++) {
-      const col = queue.shift();
-      for (let r = 0; r < BANDS; r++) {
-        const [rr, gg, bb] = PALETTE[col[r]];
-        const o = ((BANDS - 1 - r) * n + c) * 4;
-        img.data[o] = rr; img.data[o + 1] = gg; img.data[o + 2] = bb; img.data[o + 3] = 255;
-      }
-    }
-    sctx.putImageData(img, SPEC_W - n, 0);
-  }
+
+  let state = { phase: "starting" };
 
   // ------------------------------------------------------------ meter
-
-  const SEGS = 16;
-  const HEAT = [[0, 0x1b2a6b], [0.22, 0x2f6bff], [0.42, 0x28f0ff], [0.62, 0x99ff00], [0.8, 0xffd000], [1, 0xff3b3b]];
-  const heat = (t) => { const [r, g, b] = ramp(HEAT, t); return `rgb(${r},${g},${b})`; };
-  let meter = 0, peakHold = 0, peakAt = 0, dbShown = -60, dbAt = 0, lastLevel = 0, lastLevelAt = 0;
-  function stepMeter(level, now) {
-    if (now - lastLevelAt < 30) return; // ballistics at the device's pace
-    lastLevelAt = now;
-    const db = 20 * Math.log10(Math.max(level, 1e-6));
-    const target = Math.min(1, Math.max(0, (db + 60) / 60)); // -60..0 dBFS
-    meter = target > meter ? target : meter * 0.9 + target * 0.1;
-    if (meter >= peakHold || now - peakAt > 1000) {
-      peakHold = meter >= peakHold ? meter : Math.max(meter, peakHold - 0.02);
-      if (meter >= peakHold) peakAt = now;
-    }
-    if (now - dbAt > 250) { dbShown = Math.round(meter * 60 - 60); dbAt = now; }
+  const SEGS = 16, SEG_W = 9, SEG_H = 11, GAP = 2;
+  const meterCanvas = $("meter");
+  let meter = 0, peakHold = 0, peakAge = 0, dbShown = -60, dbAge = 0;
+  function meterStep(level) { // one 10 ms step, the device's ballistics
+    meter = level > meter ? level : meter * 0.969 + level * 0.031;
+    peakAge += 10;
+    if (meter >= peakHold) { peakHold = meter; peakAge = 0; }
+    else if (peakAge > 1000) peakHold = Math.max(meter, peakHold - 0.006);
+    dbAge += 10;
+    if (dbAge >= 250) { dbShown = Math.round(meter * 60 - 60); dbAge = 0; }
   }
-  function drawMeter(x, y) {
-    const lit = Math.round(meter * SEGS);
-    const peak = Math.min(SEGS - 1, Math.round(peakHold * SEGS));
+  function drawMeter() {
+    const d = DPR(), w = SEGS * (SEG_W + GAP) - GAP;
+    if (meterCanvas.width !== Math.round(w * d)) {
+      meterCanvas.style.width = w + "px"; meterCanvas.style.height = SEG_H + "px";
+      meterCanvas.width = Math.round(w * d); meterCanvas.height = Math.round(SEG_H * d);
+    }
+    const g = meterCanvas.getContext("2d");
+    g.clearRect(0, 0, meterCanvas.width, meterCanvas.height);
+    const lit = Math.round(meter * SEGS), peak = Math.min(SEGS - 1, Math.round(peakHold * SEGS));
     for (let i = 0; i < SEGS; i++) {
-      let col = i < lit ? heat((i + 0.5) / SEGS) : C.faint;
-      if (i === peak && peak > 0) col = C.text;
-      rect(x + i * 5, y, 4, 8, col);
+      let col = COL.faint;
+      if (i < lit) { const [r, gg, b] = ramp(HEAT, (i + 0.5) / SEGS); col = `rgb(${r},${gg},${b})`; }
+      if (i === peak && peak > 0) col = COL.text;
+      g.fillStyle = col;
+      g.beginPath();
+      g.roundRect(i * (SEG_W + GAP) * d, 0, SEG_W * d, SEG_H * d, 1.5 * d);
+      g.fill();
     }
-    const s = dbShown + " DB";
-    t0(s, x + SEGS * 5 - 1 - w0(s), y + 12, C.dim);
+    const db = dbShown + " dB";
+    if ($("db").textContent !== db) $("db").textContent = db;
   }
 
-  // ------------------------------------------------------------ state
-
-  let state = { phase: "starting", title: "", detail: "" };
-  let sel = 0;             // selected row
-  let entry = null;        // pairing code being typed, or null
-  let entryError = "";
-  let copiedAt = -1e9;
-  let rows = [];           // this frame's rows: {y, h, i, act}
-  let hits = [];           // other clickable rects
-
-  function rowList() {
-    const s = state, list = [];
-    const fix = {
-      no_loopback: ["Install " + (s.install_name || "a virtual device"), () => send("open", "install")],
-      mic_denied: ["Allow microphone access", () => send("open", "privacy")],
-      busy: ["Try again", () => send("retry")],
-      failed: ["Try again", () => send("retry")],
-      wrong_code: ["Enter the new code", () => startEntry()],
-    }[s.phase];
-    if (fix) list.push({ label: "Fix", value: fix[0], col: C.warn, act: fix[1] });
-    const live = s.phase === "connected";
-    const mic = live ? s.mic : (s.usb || s.mic);
-    list.push({
-      label: "Microphone", value: performance.now() - copiedAt < 1200 ? "COPIED" : (mic || "-"),
-      col: mic && (live || s.usb) ? C.accent : C.dim,
-      act: mic ? () => { send("copy", mic); copiedAt = performance.now(); } : null,
-    });
-    list.push({
-      label: "Wi-Fi",
-      value: !s.wifi ? "OFF" : live ? s.device : s.phase === "searching" ? "SEARCHING" : s.phase === "starting" ? "STARTING" : "NOT LINKED",
-      col: !s.wifi ? C.dim : live ? C.accent : C.warn,
-      act: () => send("wifi", s.wifi ? "0" : "1"),
-    });
-    list.push({ label: "USB", value: s.usb ? "PLUGGED IN" : "-", col: s.usb ? C.accent : C.dim, act: null });
-    list.push({
-      label: "Pairing", value: s.paired ? (live && s.encrypted ? "ENCRYPTED" : "ON") : "OFF",
-      col: s.paired ? C.accent : C.dim, act: () => startEntry(),
-    });
-    const outs = [""].concat((s.outputs || []).map((o) => o.name));
-    const cur = s.manual ? (s.output || "") : "";
-    list.push({
-      label: "Play into", value: s.manual ? (s.output || "-") : "AUTO" + (s.output ? "  " + s.output : ""),
-      col: C.text,
-      act: outs.length > 1 ? () => send("output", outs[(outs.indexOf(cur) + 1) % outs.length]) : null,
-    });
-    list.push({
-      label: s.platform === "win" ? "Start with Windows" : "Open at login", value: s.login ? "ON" : "OFF",
-      col: s.login ? C.accent : C.dim, act: () => send("login", s.login ? "0" : "1"),
-    });
-    return list;
-  }
-
-  function startEntry() { entry = ""; entryError = ""; }
-
-  // ------------------------------------------------------------ frame
+  // ------------------------------------------------------------ animation
 
   function frame(now) {
-    ctx.fillStyle = C.bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    hits = [];
-    rows = [];
-    const s = state, mac = s.platform !== "win";
-    const live = s.phase === "connected";
-
-    // Top row: title, then the device's link lights.
-    const x0 = mac ? 40 : 2;
-    t0("CARDMIC", x0, 5, C.accent);
-    if (s.version) t0("V" + s.version, x0 + w0("CARDMIC") + 6, 5, C.dim);
-    const light = (x, col, label, flowing) => {
-      if (flowing) drawCircle(x + 3, 8, 5, mix(C.bg, col, 0.2 + 0.6 * (0.5 + 0.5 * Math.sin(now * 0.0063))));
-      fillCircle(x + 3, 8, 3, col);
-      t0(label, x + 11, 5, col);
-    };
-    const seeking = s.phase === "searching" || s.phase === "starting";
-    const wifiCol = !s.wifi ? C.dim : live ? C.accent : seeking ? (Math.floor(now / 350) % 2 ? C.warn : C.faint) : C.warn;
-    light(W - 2 - 72, s.usb ? C.accent : C.dim, "USB", false);
-    light(W - 2 - 36, wifiCol, "WIFI", live && (s.level || 0) > 0.002);
-
-    // Spectrogram, with the device's log-frequency ticks.
-    scrollSpectrogram(now);
-    ctx.drawImage(spec, SPEC_X * K, SPEC_Y * K, SPEC_W * K, BANDS * K);
-    for (const [hz, lab] of [[4000, "4K"], [1000, "1K"], [250, "250"]]) {
-      const y = SPEC_Y + BANDS - 1 - Math.floor(BANDS * Math.log(hz / 100) / Math.log(80));
-      rect(SPEC_X, y, 3, 1, C.dim);
-      t0(lab, SPEC_X + 5, y - 3, C.dim);
-    }
-
-    // State word and meter, as on the device's main screen.
-    const word = {
-      connected: ["LIVE", C.accent], searching: ["SEARCH", C.dim], starting: ["WAIT", C.dim],
-      off: s.usb ? ["USB", C.accent] : ["IDLE", C.dim], wrong_code: ["PAIR", C.warn],
-    }[s.phase] || ["SETUP", C.warn];
-    tg(ORBITRON, word[0], 2, 92, word[1]);
-    stepMeter(live ? (s.level || 0) : 0, now);
-    drawMeter(W - 2 - SEGS * 5 + 1, 93);
-
-    const detail = live ? `CARDPUTER AT ${s.device}  ${s.encrypted ? "ENCRYPTED" : "NOT ENCRYPTED"}` : (s.detail || "").toUpperCase();
-    const dcol = !live && word[1] === C.warn ? C.warn : C.dim;
-    if (ascii(detail)) t0(fit0(detail, W - 4), 2, 120, dcol); else tsys(detail, 2, 119, dcol, 9);
-
-    if (entry !== null) drawEntry(now); else drawRows();
-
-    // Key hints and stats along the bottom, like the device.
-    let hx = 2;
-    const hy = H - 13;
-    if (entry !== null) {
-      hx = keycap(hx, hy, "ENT", "PAIR");
-      keycap(hx, hy, "ESC", "BACK");
+    const dt = Math.min(100, now - last);
+    last = now;
+    // Far behind after a long Wi-Fi pause: skip ahead rather than lag.
+    if (queue.length > target() * 3) queue.splice(0, queue.length - target());
+    if (state.phase === "connected" || state.phase === "usb" || queue.length) {
+      const t = target();
+      const speed = Math.min(1.2, Math.max(0.8, 1 + (queue.length - t) / (2 * t)));
+      phase += dt * 0.1 * speed; // columns per ms
+      while (phase >= 1) {
+        let c = queue.shift();
+        if (!c) { c = SILENT; gaps++; }
+        paintColumn(head, c.bands);
+        head = (head + 1) % RING;
+        meterStep(c.level);
+        phase -= 1;
+      }
     } else {
-      hx = keycap(hx, hy, "\x18\x19", "MOVE");
-      keycap(hx, hy, "ENT", "OPEN");
+      for (let i = 0; i < dt / 10; i++) meterStep(0);
+      phase = 0;
     }
-    const stats = live ? `BUF ${Math.round(s.buffer_ms || 0)}MS  LOSS ${(s.loss_pct || 0).toFixed(1)}%` : "";
-    t0(stats, W - 2 - w0(stats), hy + 1, C.dim);
-
+    // The ring holds COLS columns plus the slot at `head`, where the next
+    // column is previewed so the right edge moves smoothly.
+    paintColumn(head, (queue[0] || SILENT).bands);
+    const w = spec.width, h = spec.height, cw = w / COLS;
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = "medium";
+    // Oldest first: slots head+1 .. RING-1, then 0 .. head.
+    const first = RING - (head + 1), x0 = -phase * cw;
+    if (first > 0) sctx.drawImage(hist, head + 1, 0, first, BANDS, x0, 0, first * cw, h);
+    sctx.drawImage(hist, 0, 0, head + 1, BANDS, x0 + first * cw, 0, (head + 1) * cw, h);
+    drawMeter();
     requestAnimationFrame(frame);
   }
 
-  function drawRows() {
-    const list = rowList();
-    sel = Math.min(sel, list.length - 1);
-    const top = 134, rh = 14;
-    t0("SETTINGS", 2, top, C.accent);
-    const pos = String(sel + 1).padStart(2, "0") + "/" + String(list.length).padStart(2, "0");
-    t0(pos, W - 2 - w0(pos), top, C.dim);
-    list.forEach((r, i) => {
-      const y = top + 11 + i * rh;
-      const on = i === sel;
-      if (on) { rect(0, y, W, rh, C.row); rect(0, y, 3, rh, C.accent); }
-      t0(String(i + 1).padStart(2, "0"), 7, y + 3, on ? C.accent : C.dim);
-      tg(DEJAVU, r.label, 24, y + 2, on ? C.text : C.label);
-      const room = W - 4 - 24 - wg(DEJAVU, r.label) - 10;
-      right(DEJAVU, fit(DEJAVU, r.value, room), W - 4, y + 2, r.col);
-      rows.push({ y, h: rh, i, act: r.act });
-    });
+  // ------------------------------------------------------------ state → view
+
+  let userTouched = -1e9;       // when the user last flipped a switch: that wins over stale state for a moment
+  let editing = false, copiedUntil = 0;
+  const FIX = {
+    no_loopback: (s) => ["Needs a virtual audio device", "Install " + (s.install_name || ""), () => send("open", "install")],
+    mic_denied: () => ["Microphone access is off", "Open Settings", () => send("open", "privacy")],
+    busy: () => ["Another Cardmic is receiving", "Try Again", () => send("retry")],
+    failed: (s) => [s.detail || "Something went wrong", "Try Again", () => send("retry")],
+    wrong_code: () => ["The pairing code changed", "Pair…", () => openEditor()],
+    needs_pairing: () => ["This Cardputer requires pairing", "Pair…", () => openEditor()],
+  };
+  let fixAction = null;
+
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // Updates arrive ~33 times a second; write to the page only what changed.
+  const shown = new Map();
+  function put(el, prop, value) {
+    const key = el.id + "." + prop;
+    if (shown.get(key) === value) return;
+    shown.set(key, value);
+    if (prop === "text") el.textContent = value;
+    else if (prop === "class") el.className = value;
+    else if (prop === "title") el.title = value;
+    else if (prop === "html") el.innerHTML = value;
+    else el[prop] = value;
   }
-
-  function drawEntry(now) {
-    const top = 134;
-    t0("PAIRING", 2, top, C.accent);
-    t0("TYPE THE CODE FROM CARDMIC > SETTINGS > PAIRING", 2, top + 14, C.dim);
-    rect(2, top + 27, W - 4, 20, C.row);
-    rect(2, top + 27, 3, 20, C.accent);
-    const shown = entry.replace(/(.{4})(?=.)/g, "$1-");
-    if (!entry) tg(DEJAVU, "XXXX-XXXX-XXXX", 10, top + 32, C.faint);
-    const ex = entry ? tg(DEJAVU, shown, 10, top + 32, C.text) : 10;
-    if (Math.floor(now / 500) % 2) rect(ex + 1, top + 31, 1, 12, C.accent);
-    if (entryError) t0(fit0(entryError.toUpperCase(), W - 4), 2, top + 53, C.mute);
-    else if (state.paired) t0("A NEW CODE REPLACES THE CURRENT ONE", 2, top + 53, C.dim);
-  }
-
-  // ------------------------------------------------------------ input
-
-  const at = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / S, (e.clientY - r.top) / S]; };
-  const inside = (h, x, y) => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h;
-  canvas.addEventListener("mousemove", (e) => {
-    const [x, y] = at(e);
-    const row = entry === null && rows.find((r) => y >= r.y && y < r.y + r.h);
-    if (row) sel = row.i;
-    canvas.style.cursor = (row && row.act) || hits.some((h) => inside(h, x, y)) ? "pointer" : "default";
-  });
-  canvas.addEventListener("mousedown", (e) => {
-    const [x, y] = at(e);
-    const hit = hits.find((h) => inside(h, x, y));
-    if (hit) return hit.act();
-    const row = entry === null && rows.find((r) => y >= r.y && y < r.y + r.h);
-    if (row) { sel = row.i; if (row.act) row.act(); return; }
-    if (y < 18) send("drag"); // the top row is the title bar
-  });
-  document.addEventListener("keydown", (e) => {
-    if (entry !== null) {
-      if (e.key === "Escape") entry = null;
-      else if (e.key === "Enter") send("pair", entry);
-      else if (e.key === "Backspace") { entry = entry.slice(0, -1); entryError = ""; }
-      else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
-        const c = e.key.toUpperCase().replace(/[^0-9A-Z]/g, "");
-        if (c && entry.length < 12) { entry += c; entryError = ""; }
-      }
-      return;
-    }
-    const list = rowList();
-    if (e.key === "ArrowUp" || e.key === ";") sel = Math.max(0, sel - 1);
-    else if (e.key === "ArrowDown" || e.key === ".") sel = Math.min(list.length - 1, sel + 1);
-    else if (e.key === "Enter" || e.key === " ") { const r = list[sel]; if (r && r.act) r.act(); }
-    else if (e.key === "h" || e.key === "H") send("open", "help");
-  });
-  document.addEventListener("paste", (e) => {
-    if (entry === null) return;
-    entry = (entry + (e.clipboardData.getData("text") || "").toUpperCase().replace(/[^0-9A-Z]/g, "")).slice(0, 12);
-  });
-  document.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  // ------------------------------------------------------------ from Rust
 
   function update(s) {
     if (s.spec) addColumns(s.spec);
     delete s.spec;
     state = s;
+    document.documentElement.classList.toggle("mac", s.platform !== "win");
+    dots($("brand"), "CARDMIC", 2, COL.accent, null);
+    put($("version"), "text", s.version ? "v" + s.version : "");
+
+    const live = s.phase === "connected";
+    const usbLive = s.phase === "usb";
+    const usb = $("usbLight"), wl = $("wifiLight");
+    put(usb, "class", "light legend" + (s.usb ? " on" : ""));
+    const seeking = s.phase === "searching" || s.phase === "starting";
+    put(wl, "class", "light legend" + (!s.wifi ? "" : live ? " on" + ((s.level || 0) > 0.002 ? " flow" : "") : seeking ? " warn blink" : " warn"));
+
+    const word = {
+      connected: ["LIVE", COL.accent], searching: ["SEARCH", COL.dim], starting: ["WAIT", COL.dim],
+      off: ["IDLE", COL.dim], usb: ["LIVE", COL.accent],
+      wrong_code: ["PAIR", COL.warn], needs_pairing: ["PAIR", COL.warn],
+    }[s.phase] || ["SETUP", COL.warn];
+    dots($("word"), word[0], 4, word[1]);
+
+    // Readouts: data only, each under its legend.
+    const setData = (el, value, cls, unit) => {
+      put(el, "html", value === null ? "—" : esc(value) + (unit ? `<span class="unit">${unit}</span>` : ""));
+      put(el, "class", "data " + (value === null ? "none" : cls || ""));
+    };
+    setData($("rDevice"), live || usbLive ? (s.device_name || (live ? s.device : "Cardputer")) : null, live || usbLive ? "live" : "");
+    put($("rDevice"), "title", live ? s.device : "");
+    setData($("rLink"), live ? (s.encrypted ? "Encrypted" : "Open") : usbLive ? "USB" : seeking && s.wifi ? "Searching" : !s.wifi ? "Off" : null, live ? (s.encrypted ? "live" : "warn") : usbLive ? "live" : "");
+    setData($("rLatency"), live ? String(Math.round(s.buffer_ms || 0)) : null, "", "ms");
+    setData($("rLoss"), live ? (s.loss_pct || 0).toFixed(1) : null, (s.loss_pct || 0) > 1 ? "warn" : "", "%");
+
+    // With nothing to show, the scope says why, in words.
+    const msg = live || usbLive ? null
+      : s.phase === "needs_pairing" ? ["Pairing needed", "Plug the Cardputer in once, or type the code from its Settings › Pairing"]
+      : [s.title || "", s.detail || ""];
+    put($("message"), "class", msg ? (word[1] === COL.warn ? "warn" : "") : "hidden");
+    if (msg) { put($("msgTitle"), "text", msg[0]); put($("msgDetail"), "text", msg[1]); }
+
+    const wp = s.wifi_phase || s.phase;
+    const fix = s.wifi && FIX[wp] && FIX[wp](s);
+    put($("fixRow"), "class", "row" + (fix ? "" : " hidden"));
+    if (fix) { $("fixText").textContent = fix[0]; $("fixText").title = fix[0]; $("fixBtn").textContent = fix[1]; fixAction = fix[2]; }
+
+    const mic = live ? s.mic : (s.usb || s.mic);
+    const micLive = live || usbLive || !!s.usb;
+    const micEl = $("mic");
+    if (performance.now() >= copiedUntil) put(micEl, "text", mic || "—");
+    put(micEl, "title", mic || "");
+    put(micEl, "class", "v data" + (mic && micLive ? " live" : " none"));
+    $("copy").disabled = !mic;
+    $("copy").style.visibility = mic ? "visible" : "hidden";
+
+    const fresh = performance.now() - userTouched > 1500;
+    if (fresh) { $("wifi").checked = !!s.wifi; $("login").checked = !!s.login; }
+
+    const out = $("output");
+    const opts = [["", "Automatic" + (!s.manual && s.output ? "  (" + s.output + ")" : "")]]
+      .concat((s.outputs || []).map((o) => [o.name, o.label]));
+    const key = JSON.stringify(opts) + "|" + (s.manual ? s.output : "");
+    if (out.dataset.key !== key && document.activeElement !== out) {
+      out.innerHTML = "";
+      for (const [v, t] of opts) { const o = document.createElement("option"); o.value = v; o.textContent = t; out.appendChild(o); }
+      out.value = s.manual ? (s.output || "") : "";
+      out.dataset.key = key;
+    }
+    out.disabled = !(s.outputs || []).length;
+
+    put($("pairText"), "text", s.paired_over_usb ? "Paired over USB" : s.paired ? (live && s.encrypted ? "Paired, encrypted" : "Paired") : "Not paired");
+    put($("pairText"), "class", "data " + (s.paired ? "live" : "none"));
+    $("forget").classList.toggle("hidden", !s.paired);
+    put($("pairBtn"), "text", s.paired ? "Change…" : "Pair…");
+    $("pairButtons").classList.toggle("hidden", editing);
+
+    put($("loginLabel"), "text", s.platform === "win" ? "Start with Windows" : "Open at login");
   }
+
+  // ------------------------------------------------------------ controls
+
+  function openEditor() {
+    editing = true;
+    $("pairing").classList.add("editing");
+    $("pairButtons").classList.add("hidden");
+    $("pairErr").classList.remove("show");
+    $("code").value = "";
+    $("code").focus();
+  }
+  function closeEditor() {
+    editing = false;
+    $("pairing").classList.remove("editing");
+    $("pairButtons").classList.remove("hidden");
+    $("pairErr").classList.remove("show");
+  }
+  $("pairBtn").addEventListener("click", openEditor);
+  $("cancel").addEventListener("click", closeEditor);
+  $("pair").addEventListener("click", () => send("pair", $("code").value));
+  $("forget").addEventListener("click", () => send("unpair"));
+  $("code").addEventListener("input", (e) => {
+    const raw = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 12);
+    e.target.value = raw.replace(/(.{4})(?=.)/g, "$1-");
+    $("pairErr").classList.remove("show");
+  });
+  $("code").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("pair").click();
+    if (e.key === "Escape") closeEditor();
+  });
+  $("wifi").addEventListener("change", (e) => { userTouched = performance.now(); send("wifi", e.target.checked ? "1" : "0"); });
+  $("login").addEventListener("change", (e) => { userTouched = performance.now(); send("login", e.target.checked ? "1" : "0"); });
+  $("output").addEventListener("change", (e) => { send("output", e.target.value); e.target.blur(); });
+  $("copy").addEventListener("click", () => {
+    const mic = $("mic").title;
+    if (!mic) return;
+    send("copy", mic);
+    copiedUntil = performance.now() + 1200;
+    $("mic").textContent = "Copied";
+  });
+  $("fixBtn").addEventListener("click", () => fixAction && fixAction());
+  $("help").addEventListener("click", () => send("open", "help"));
+  $("updates").addEventListener("click", () => send("open", "updates"));
+  // Drag the window by its title bar (it is part of the page).
+  $("bar").addEventListener("mousedown", (e) => { if (e.button === 0 && !e.target.closest("button, input, select, label")) send("drag"); });
+  document.addEventListener("contextmenu", (e) => { if (!e.target.closest("input")) e.preventDefault(); });
+
   function pairResult(ok, message) {
-    if (ok) { entry = null; entryError = ""; } else entryError = message;
+    if (ok) closeEditor();
+    else { $("pairErr").textContent = message; $("pairErr").classList.add("show"); $("code").focus(); }
   }
-  window.cardmic = { update, pairResult, focusPair: startEntry };
+
+  // Called from Rust; an exception there reaches the log only as "Script
+  // error", so catch it here with its details.
+  const guard = (fn) => (...a) => { try { return fn(...a); } catch (e) { window.__report(fn.name + ": " + e.message + " " + (e.stack || "").split("\n")[1]); } };
+  window.cardmic = { update: guard(update), pairResult: guard(pairResult), focusPair: guard(openEditor) };
+  window.addEventListener("resize", sizeSpec);
+  sizeSpec();
+  update(state);
   requestAnimationFrame(frame);
 
   if (!window.ipc) {
-    // Demo mode: opened in a browser, not in the app.
+    // Demo mode: opened in a browser, not in the app. Bursty on purpose, like Wi-Fi.
     let t = 0;
     setInterval(() => {
       t++;
-      const speaking = Math.sin(t / 7) > -0.1;
+      if (t % 20 === 0) return; // a dropped push
+      const speaking = Math.sin(t / 14) > -0.1;
       let hex = "";
-      for (let c = 0; c < 10; c++) {
-        const f0 = 8 + 4 * Math.sin((t * 10 + c) / 9);
+      const n = t % 20 === 1 ? 10 : 5;
+      for (let c = 0; c < n; c++) {
+        const f0 = 8 + 4 * Math.sin((t * 5 + c) / 18);
+        let lvl = speaking ? 150 + Math.random() * 70 : 20 + Math.random() * 10;
         for (let r = 0; r < BANDS; r++) {
-          let v = Math.random() < 0.08 ? Math.random() * 60 : 0;
-          if (speaking) for (let h = 1; h <= 5; h++) {
-            const d = Math.abs(r - (f0 + h * 7));
-            if (d < 2.5) v = Math.max(v, 230 - d * 60 - h * 18 + Math.random() * 30);
+          let v = Math.random() < 0.06 ? Math.random() * 50 : 0;
+          if (speaking) for (let hh = 1; hh <= 5; hh++) {
+            const dd = Math.abs(r - (f0 + hh * 7));
+            if (dd < 2.5) v = Math.max(v, 230 - dd * 60 - hh * 18 + Math.random() * 30);
           }
           hex += Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0");
         }
+        hex += (lvl | 0).toString(16).padStart(2, "0");
       }
       update({
         platform: "mac", version: "0.6.0", wifi: true, login: true, phase: "connected",
         title: "Connected", detail: "", device: "192.168.1.42", encrypted: true,
         mic: "BlackHole 2ch", output: "BlackHole 2ch", manual: false,
         outputs: [{ name: "BlackHole 2ch", label: "BlackHole 2ch" }, { name: "Microsoft Teams Audio", label: "Microsoft Teams Audio" }],
-        level: speaking ? 0.05 + Math.random() * 0.4 : Math.random() * 0.004,
-        buffer_ms: 120, loss_pct: 0, usb: null, paired: true, install_name: "BlackHole 2ch", spec: hex,
+        level: 0.1, buffer_ms: 120, loss_pct: 0, usb: null, paired: true, install_name: "BlackHole 2ch", spec: hex,
       });
-    }, 100);
+    }, 50);
   } else {
     send("ready");
   }

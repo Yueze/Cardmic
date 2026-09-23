@@ -222,6 +222,9 @@ fn run(args: &[String]) -> Result<(), String> {
                     println!("Still searching. Is Cardmic open and on the same Wi-Fi? If Settings > Pairing is on, run `cardmic pair CODE` first.");
                 }
             }
+            Event::PairingRequired { addr } => println!(
+                "\nThe Cardputer at {addr} requires pairing. Run `cardmic pair CODE` with the code in Cardmic > Settings > Pairing."
+            ),
             Event::OutputReopened { sample_rate, channels } => {
                 eprintln!("\noutput stream reopened at {sample_rate} Hz, {channels} ch")
             }

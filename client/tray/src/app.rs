@@ -4,6 +4,7 @@ use crate::devices::{self, Devices};
 use crate::platform::{self, MicAccess};
 use crate::settings::Settings;
 use crate::ui::{Command, Json, Ui};
+use crate::usb::UsbMonitor;
 use cardmic_audio::Candidate;
 use cardmic_core::pairing::normalize_code;
 use cardmic_engine::{output, pairing_store, Engine, Link, Options, StartError, Status};
@@ -26,7 +27,7 @@ const HELP: &str = "https://github.com/Yueze/Cardmic/blob/main/docs/windows.md";
 /// and ask it to show its menu instead of starting.
 const INSTANCE_PORT: u16 = 41239;
 /// Also the level meter's frame rate while the window is open.
-const TICK: Duration = Duration::from_millis(100);
+const TICK: Duration = Duration::from_millis(30);
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -123,6 +124,14 @@ struct App {
     /// This computer has a pairing code (cached; read on start and change).
     paired: bool,
     ui: Option<Ui>,
+    /// When this computer last took the pairing code over USB.
+    paired_over_usb: Option<Instant>,
+    /// The Cardputer's name, remembered from USB for when it is on Wi-Fi.
+    device_name: Option<String>,
+    /// Listening to the USB microphone while the window is open.
+    usb: Option<UsbMonitor>,
+    usb_retry_at: Option<Instant>,
+    asked_mic_for_usb: bool,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     logged_icon: bool,
     /// The menu currently attached to the icon.
@@ -155,12 +164,22 @@ pub fn log(line: &str) {
 
 /// `--diagnose`: what the app would see, for support and testing.
 pub fn diagnose() {
-    let d = devices::scan();
+    let mut hid = hidapi::HidApi::new().ok();
+    let d = devices::scan(hid.as_mut());
     println!("cardmic-app {VERSION}");
     println!("login item: {}", if platform::login_item_enabled() { "on" } else { "off" });
     println!("microphone access: {:?}", platform::mic_access());
     println!("paired: {}", pairing_store::load().is_some());
     println!("usb mic: {}", d.usb_mic.as_deref().unwrap_or("none"));
+    match &d.usb_identity {
+        Some(id) => println!(
+            "usb identity: {} (firmware {}), pairing {}",
+            id.name,
+            id.firmware,
+            if id.code.is_some() { "on" } else { "off" }
+        ),
+        None => println!("usb identity: none"),
+    }
     for c in &d.loopbacks {
         println!("loopback candidate: {}", c.label());
     }
@@ -199,6 +218,10 @@ pub fn run() {
 
     let mut instance = Some(instance);
     let mut app: Option<App> = None;
+    // A fixed schedule: other events (mouse moves, the web view) must not
+    // push the next tick back, or the window starves and then gets a second
+    // of spectrogram at once.
+    let mut next_tick = Instant::now() + TICK;
     #[cfg(target_os = "windows")]
     tray_icon::TrayIconEvent::set_event_handler(Some({
         let proxy = proxy.clone();
@@ -208,7 +231,6 @@ pub fn run() {
     }));
 
     event_loop.run(move |event, target, control_flow| {
-        *control_flow = ControlFlow::WaitUntil(Instant::now() + TICK);
         match event {
             // On macOS the tray icon must be created once the loop is running.
             Event::NewEvents(StartCause::Init) => {
@@ -240,13 +262,19 @@ pub fn run() {
                     a.refresh();
                 }
             }
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
-                if let Some(a) = app.as_mut() {
-                    a.tick();
-                }
-            }
             _ => {}
         }
+        if *control_flow == ControlFlow::Exit {
+            return;
+        }
+        let now = Instant::now();
+        if now >= next_tick {
+            if let Some(a) = app.as_mut() {
+                a.tick();
+            }
+            next_tick = (next_tick + TICK).max(now + TICK / 2);
+        }
+        *control_flow = ControlFlow::WaitUntil(next_tick);
     });
 }
 
@@ -258,8 +286,6 @@ fn app_menu_bar() {
     let about = AboutMetadata {
         name: Some("Cardmic".into()),
         version: Some(VERSION.into()),
-        website: Some("https://github.com/Yueze/Cardmic".into()),
-        license: Some("MIT".into()),
         ..Default::default()
     };
     let app = Submenu::with_items(
@@ -357,6 +383,11 @@ impl App {
             first_launch,
             paired: pairing_store::load().is_some(),
             ui,
+            paired_over_usb: None,
+            device_name: None,
+            usb: None,
+            usb_retry_at: None,
+            asked_mic_for_usb: false,
             logged_icon: false,
             menu,
         };
@@ -402,7 +433,18 @@ impl App {
                     let events = proxy.clone();
                     Engine::start(
                         Options { output, keys: pairing_store::load_keys(), devices: Vec::new() },
-                        move |_| {
+                        move |e| {
+                            match &e {
+                                cardmic_engine::Event::Connected { addr, encrypted } => {
+                                    log(&format!("connected to {addr} (encrypted: {encrypted})"))
+                                }
+                                cardmic_engine::Event::Lost { addr } => log(&format!("lost {addr}")),
+                                cardmic_engine::Event::StillSearching { auth_failures, .. } => {
+                                    log(&format!("still searching (auth failures: {auth_failures})"))
+                                }
+                                cardmic_engine::Event::UnencryptedWhilePaired => log("device is not requiring pairing"),
+                                _ => {}
+                            }
                             let _ = events.send_event(UserEvent::Engine);
                         },
                     )
@@ -420,6 +462,10 @@ impl App {
         self.generation += 1;
         self.wifi = Wifi::Off;
         self.retry_at = None;
+    }
+
+    fn wifi_connected(&self) -> bool {
+        matches!(self.status().map(|s| s.link), Some(Link::Connected { .. }))
     }
 
     fn status(&self) -> Option<Status> {
@@ -481,6 +527,23 @@ impl App {
             }
             UserEvent::Devices(d) => {
                 let loopbacks_changed = d.loopbacks != self.devices.loopbacks;
+                // Plugged in with pairing on: take the Cardputer's code, so
+                // Wi-Fi works (encrypted) once the cable is out.
+                if let Some(code) = d.usb_identity.as_ref().and_then(|id| id.code.clone()) {
+                    if pairing_store::load().as_deref() != Some(code.as_str()) {
+                        let name = d.usb_identity.as_ref().map(|id| id.name.clone()).unwrap_or_default();
+                        match self.pair(&code) {
+                            Ok(()) => {
+                                log(&format!("paired with {name} over USB"));
+                                self.paired_over_usb = Some(Instant::now());
+                            }
+                            Err(e) => log(&format!("pairing over USB failed: {e}")),
+                        }
+                    }
+                }
+                if let Some(id) = &d.usb_identity {
+                    self.device_name = Some(id.name.clone());
+                }
                 self.devices = d;
                 // A loopback device was just installed (or removed): try again.
                 if loopbacks_changed && matches!(self.wifi, Wifi::NoLoopback) {
@@ -680,17 +743,20 @@ impl App {
     /// Send the state, and new spectrogram columns, to the window if it is
     /// open. Columns that pile up while it is closed are dropped.
     fn push_state(&self) {
-        let columns = match &self.wifi {
+        let wifi_columns = match &self.wifi {
             Wifi::Running(engine) => engine.take_spectrum(),
             _ => Vec::new(),
         };
+        let usb_columns = self.usb.as_ref().map(|m| m.take_spectrum()).unwrap_or_default();
+        // The window shows Wi-Fi when it is receiving, else USB.
+        let columns = if self.wifi_connected() { wifi_columns } else { usb_columns };
         let Some(ui) = self.ui.as_ref().filter(|u| u.visible()) else { return };
         let mut json = self.state_json();
         if !columns.is_empty() {
-            let mut hex = String::with_capacity(columns.len() * columns[0].len() * 2);
+            let mut hex = String::with_capacity(columns.len() * (cardmic_engine::spectrum::BANDS + 1) * 2);
             for col in &columns {
-                for b in col {
-                    use std::fmt::Write as _;
+                use std::fmt::Write as _;
+                for b in col.bands.iter().chain(std::iter::once(&col.level)) {
                     let _ = write!(hex, "{b:02x}");
                 }
             }
@@ -717,8 +783,13 @@ impl App {
             (Wifi::Failed(_), _) => "failed",
             (Wifi::Running(_), _) if connected.is_some() => "connected",
             (Wifi::Running(_), Some(s)) if s.auth_failures > 0 => "wrong_code",
+            (Wifi::Running(_), Some(s)) if s.pairing_refused => "needs_pairing",
             (Wifi::Running(_), _) => "searching",
         };
+        // Plugged in over USB and not receiving over Wi-Fi: show USB, live.
+        // `wifi_phase` keeps what Wi-Fi is up to, for the Fix row.
+        let wifi_phase = phase;
+        let phase = if phase != "connected" && self.usb.is_some() { "usb" } else { phase };
         let (mut title, mut detail, _) = self.describe(s);
         if let Some((addr, _)) = connected {
             title = "Connected".into();
@@ -741,6 +812,7 @@ impl App {
             .bool("wifi", self.settings.wifi)
             .bool("login", platform::login_item_enabled())
             .str("phase", phase)
+            .str("wifi_phase", wifi_phase)
             .str("title", &title)
             .str("detail", &detail)
             .opt("device", connected.map(|(a, _)| a.ip().to_string()).as_deref())
@@ -754,11 +826,50 @@ impl App {
             .num("loss_pct", loss)
             .opt("usb", self.devices.usb_mic.as_deref())
             .bool("paired", self.paired)
+            .bool("paired_over_usb", self.paired_over_usb.is_some_and(|t| t.elapsed() < Duration::from_secs(8)))
+            .opt("device_name", self.devices.usb_identity.as_ref().map(|i| i.name.as_str()).or(self.device_name.as_deref()))
             .str("install_name", output::install_hint().0)
             .build()
     }
 
+    /// Open or close the USB monitor to match: window open, Cardputer
+    /// plugged in, microphone access granted.
+    fn sync_usb(&mut self) {
+        let window_open = self.ui.as_ref().is_some_and(|u| u.visible());
+        let access = platform::mic_access();
+        if window_open && self.devices.usb_mic.is_some() && access == MicAccess::NotAsked && !self.asked_mic_for_usb {
+            // Recording from the USB microphone needs the permission; ask once.
+            self.asked_mic_for_usb = true;
+            let proxy = self.proxy.clone();
+            platform::request_mic_access(move |granted| {
+                let _ = proxy.send_event(UserEvent::MicAnswered(granted));
+            });
+        }
+        let want = match (&self.devices.usb_mic, window_open) {
+            (Some(name), true) if access == MicAccess::Granted => Some(name.clone()),
+            _ => None,
+        };
+        match (&self.usb, want) {
+            (Some(m), Some(name)) if m.name == name => {}
+            (_, None) => self.usb = None,
+            (_, Some(name)) => {
+                if self.usb_retry_at.is_some_and(|t| Instant::now() < t) {
+                    return;
+                }
+                self.usb = None;
+                match UsbMonitor::open(&name) {
+                    Ok(m) => self.usb = Some(m),
+                    Err(e) => {
+                        log(&format!("usb monitor: {e}"));
+                        self.usb_retry_at = Some(Instant::now() + Duration::from_secs(5));
+                    }
+                }
+            }
+        }
+    }
+
     fn tick(&mut self) {
+        self.sync_usb();
         if self.retry_at.is_some_and(|t| Instant::now() >= t) && self.settings.wifi {
             if matches!(self.wifi, Wifi::MicDenied) && platform::mic_access() != MicAccess::Granted {
                 // Still off: look again in a moment, quietly.

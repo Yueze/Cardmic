@@ -28,6 +28,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+/// What a Cardputer with pairing on answers a discovery it cannot accept.
+pub const PAIRING_REQUIRED: &[u8] = b"CARDMIC_PAIRING_REQUIRED";
+
 /// How long to wait with no Cardputer before [`Event::StillSearching`].
 const SEARCH_HINT_AFTER: Duration = Duration::from_secs(6);
 
@@ -55,6 +58,9 @@ pub struct Status {
     pub dropped: u64,
     /// Encrypted packets that did not authenticate: wrong or old pairing code.
     pub auth_failures: u64,
+    /// The Cardputer said it requires pairing and this computer has no code,
+    /// or not its current one. Cleared once audio flows.
+    pub pairing_refused: bool,
     pub underruns: u64,
     pub buffered_ms: f64,
     pub target_ms: f64,
@@ -71,6 +77,9 @@ pub enum Event {
     UnencryptedWhilePaired,
     /// Nothing found for a few seconds.
     StillSearching { paired: bool, auth_failures: u64 },
+    /// A Cardputer refused this computer: pairing is on and the code is
+    /// missing or out of date.
+    PairingRequired { addr: SocketAddr },
     OutputReopened { sample_rate: u32, channels: u16 },
     OutputReopenFailed(String),
     ReceiveError(String),
@@ -125,6 +134,7 @@ impl Engine {
             resyncs: 0,
             dropped: 0,
             auth_failures: 0,
+            pairing_refused: false,
             underruns: 0,
             buffered_ms: 0.0,
             target_ms: 0.0,
@@ -323,6 +333,13 @@ impl Receiver {
                     if data == DISCOVERY_MESSAGE || data.starts_with(DISCOVERY_V2_PREFIX) {
                         continue;
                     }
+                    if data == PAIRING_REQUIRED {
+                        let first = !std::mem::replace(&mut self.lock().pairing_refused, true);
+                        if first {
+                            on_event(Event::PairingRequired { addr: from });
+                        }
+                        continue;
+                    }
                     let packet = match Packet::decode(data) {
                         Ok(p) => {
                             if self.keys.is_some() && !warned_plain {
@@ -344,6 +361,7 @@ impl Receiver {
 
                     if device != Some(from) {
                         let encrypted = packet.version == Version::Cpm2;
+                        self.lock().pairing_refused = false;
                         device = Some(from);
                         sequencer.reset();
                         self.stream.resync();

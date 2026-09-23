@@ -32,8 +32,16 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 codesign --force --options runtime --timestamp=none \
   --sign "${CODESIGN_IDENTITY:--}" "$APP/Contents/Resources/cardmic"
+# CARDMIC_LOCAL_DEV=1: an ad-hoc signature that names only the bundle ID as
+# its identity, so macOS keeps the microphone permission from one local build
+# to the next instead of asking again after every rebuild. Not for builds
+# that leave this machine: there, the default (the build's own hash) is safer.
+REQ=()
+if [ -n "${CARDMIC_LOCAL_DEV:-}" ] && [ -z "${CODESIGN_IDENTITY:-}" ]; then
+  REQ=(-r='designated => identifier "io.github.yueze.cardmic"')
+fi
 codesign --force --options runtime --timestamp=none \
-  --entitlements tray/macos/Cardmic.entitlements \
+  --entitlements tray/macos/Cardmic.entitlements "${REQ[@]}" \
   --sign "${CODESIGN_IDENTITY:--}" "$APP"
 
 # Disk image: the app next to an Applications shortcut.
