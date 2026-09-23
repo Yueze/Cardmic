@@ -35,6 +35,6 @@ where macOS blocks ordinary key events.
   link (for example, on Wi-Fi only).
 - The chord is always released when you leave the main screen or close
   Cardmic, so it can never stay stuck.
-- With a talk key on, the device uses a different USB product ID (`0x4012`
-  instead of `0x4011`), so computers treat mic-only and mic+keyboard as two
+- With a talk key on, the device uses a different USB product ID (`0x4016`
+  instead of `0x4015`), so computers treat mic-only and mic+keyboard as two
   devices and do not mix up their cached drivers.

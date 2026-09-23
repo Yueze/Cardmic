@@ -2,7 +2,7 @@
 
 > USB mode uses the USB Audio Class driver built into Windows 10 and later.
 > Wireless reception is tested on a Windows 11 PC with VB-CABLE, using the
-> command-line client. The tray app is new in 0.6.
+> command-line client. The app is built and unit-tested for Windows in CI.
 
 ## USB mode
 
@@ -31,21 +31,24 @@ It installs for your user only (no administrator rights) and starts Cardmic.
 Windows may warn that the publisher is unknown (the installer is not signed
 yet): choose **More info** > **Run anyway**.
 
-Cardmic lives in the notification area next to the clock. Its icon is three
-dots: rings while it looks for the Cardputer, filled when audio is flowing.
-If you cannot see it, click **^**, and drag the icon onto the taskbar to keep
-it in view. Opening Cardmic again from the Start menu shows its menu.
+Cardmic opens as a small window, and keeps an icon, three dots, in the
+notification area next to the clock. Click the icon to show or hide the
+window; right-click it for a short menu. If you cannot see it, click **^**,
+and drag the icon onto the taskbar to keep it in view. Opening Cardmic again
+from the Start menu brings the window back.
 
 ### 3. Use it
 
 1. On the Cardputer, open Cardmic and connect to Wi-Fi (Settings > Wi-Fi). The
    PC must be on the same network. Allow Cardmic through Windows Defender
    Firewall on private networks when asked.
-2. The icon fills in and the menu says **Connected over Wi-Fi**.
-3. In your app, choose the microphone the menu names, usually
+2. The window shows **LIVE**, the spectrogram moves, and **Link** reads
+   **Wi-Fi**.
+3. In your app, choose the microphone named under **Microphone**, usually
    **CABLE Output (VB-Audio Virtual Cable)**.
 
-Cardmic starts with Windows; the menu has a switch to turn that off.
+Cardmic starts with Windows; **Start with Windows** in the window turns that
+off.
 
 Cardmic keeps itself up to date: it checks for a new version now and then,
 downloads it in the background and installs it when nothing is in use (or
@@ -53,11 +56,13 @@ when you click **Restart to update** at the bottom of its window).
 
 ### 4. Pair it (recommended)
 
-1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on, and note
-   the code.
-2. In the Cardmic menu: **Pair with Cardputer…**, and type the code.
+1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on.
+2. Plug the Cardputer into the PC once, with Cardmic open on both. The app
+   reads the pairing code over USB and says **Paired over USB**. Unplug it;
+   Wi-Fi now connects encrypted.
 
-The menu then says **Connected over Wi-Fi · encrypted**.
+No cable at hand? Click **Enter code** in the window's Pairing row and type
+the code from the Cardputer's Pairing page.
 
 ### Command line
 

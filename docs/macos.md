@@ -31,26 +31,27 @@ The app is not notarized by Apple yet, so the first time macOS says it cannot
 check it. Open **System Settings > Privacy & Security**, scroll down and click
 **Open Anyway** next to Cardmic. After that it opens normally.
 
-Cardmic has no window. Its icon, three dots pointing right, sits in the Dock
-and in the menu bar: filled while audio is flowing, rings while it looks for
-the Cardputer. Click either one for its menu. A full menu bar or the camera
-notch can hide the menu bar icon; the Dock icon always works.
+Cardmic opens as a small window, and keeps an icon, three dots pointing
+right, in the Dock and in the menu bar. Click the Dock icon to bring the
+window back; click the menu bar icon for a short menu. A full menu bar or the
+camera notch can hide the menu bar icon; the Dock icon always works.
 
 The first time, macOS asks to let Cardmic use the microphone. Allow it:
-Cardmic records from your virtual audio devices for a moment, once, to find
-one that works. It never records your real microphones.
+Cardmic listens to your virtual audio devices for a moment to find one that
+works, and to the Cardputer over USB while its window is open, to show it
+live. It never records your other microphones.
 
 ### 3. Use it
 
 1. On the Cardputer, open Cardmic and connect to Wi-Fi (Settings > Wi-Fi). The
    Mac must be on the same network. If macOS asks to let Cardmic find devices
    on your local network, allow it.
-2. The icon fills in and the menu says **Connected over Wi-Fi**.
-3. In your app, choose the microphone the menu names, for example
-   **BlackHole 2ch**.
+2. The window shows **LIVE**, the spectrogram moves, and **Link** reads
+   **Wi-Fi**.
+3. In your app, choose the microphone named under **Microphone**, for example
+   **BlackHole 2ch**. **Copy** puts the name on the clipboard.
 
-Cardmic opens at login (System Settings > General > Login Items); the menu
-has a switch to turn that off.
+Cardmic opens at login; **Open at login** in the window turns that off.
 
 Cardmic keeps itself up to date: it checks for a new version now and then,
 downloads it in the background and installs it when nothing is in use (or
@@ -61,13 +62,17 @@ when you click **Restart to update** at the bottom of its window).
 Out of the box, anyone on the same Wi-Fi who runs Cardmic first could receive
 the audio. Pairing fixes that:
 
-1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on. Note the
-   code, e.g. `7K2M-9QXB-4TPA`.
-2. In the Cardmic menu: **Pair with Cardputer…**, and type the code.
+1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on.
+2. Plug the Cardputer into the Mac once, with Cardmic open on both. The app
+   reads the pairing code over USB and says **Paired over USB**. Unplug it;
+   Wi-Fi now connects encrypted.
 
-The menu then says **Connected over Wi-Fi · encrypted**. Only computers that
-know the code receive audio. `N` on the Pairing page makes a new code, which
-unpairs every computer.
+No cable at hand? Click **Enter code** in the window's Pairing row and type
+the code from the Cardputer's Pairing page, e.g. `7K2M-9QXB-4TPA`.
+
+Once paired, **Link** shows a lock, and only computers that know the code
+receive audio. `N` on the Pairing page makes a new code, which unpairs every
+computer; the next time, the window asks for it.
 
 ### Command line
 

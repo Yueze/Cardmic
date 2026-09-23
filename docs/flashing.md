@@ -10,8 +10,8 @@ keep the stock boot screen, launcher and every stock app. You flash over USB
 
 ## What you need
 
-- An M5Stack **Cardputer ADV**, or (experimental, from 0.6.0) an original
-  Cardputer. The firmware detects which one it is running on.
+- An M5Stack **Cardputer ADV**, or (from 0.6.0) an original Cardputer. The
+  firmware detects which one it is running on.
 - A USB-C cable **that carries data**. Many cables only charge. If your
   computer never sees the device, try another cable first.
 - Python 3 with esptool: `pip install esptool`

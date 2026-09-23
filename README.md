@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/images/icon.png" width="112" alt="Cardmic icon">
+  <img src="docs/images/icon.png" width="96" alt="Cardmic">
 </p>
 
 <h1 align="center">Cardmic</h1>
 
 <p align="center">
-  <b>Turn an M5Stack Cardputer ADV into a microphone.</b><br>
-  Plug it in over USB and it just works. Unplug it and keep talking over Wi-Fi.
+  <b>A USB and Wi-Fi microphone for the M5Stack Cardputer.</b><br>
+  Plug it in and it is a microphone. Unplug it and keep talking over Wi-Fi.
 </p>
 
 <p align="center">
@@ -17,132 +17,184 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/screen-main.png" width="720" alt="Cardmic main screen: live spectrogram and level meter">
+  <img src="docs/images/hero.png" width="880" alt="The Cardputer showing a live spectrogram of speech, beside the Cardmic app on a Mac receiving it over Wi-Fi">
+</p>
+
+<p align="center">
+  <a href="https://yueze.github.io/Cardmic/"><b>Install the firmware</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/Yueze/Cardmic/releases/latest"><b>Download the app</b></a> &nbsp;·&nbsp;
+  <a href="docs/macos.md">macOS</a> &nbsp;·&nbsp;
+  <a href="docs/windows.md">Windows</a> &nbsp;·&nbsp;
+  <a href="protocol/PROTOCOL.md">Protocol</a>
 </p>
 
 ---
 
-Cardmic is an app for the Cardputer ADV's factory firmware. It keeps the stock
-boot screen, launcher and apps, and adds a microphone that your computer can
-use two ways:
-
-- **USB.** A standard USB Audio Class microphone. No driver, no client, no
-  setup. It shows up as **Cardmic Microphone**.
-- **Wi-Fi.** A 16 kHz stream to the Cardmic app on your computer (Dock and menu
-  bar on macOS, notification area on Windows), which turns the stream into a
-  microphone every app can pick.
-
-## Features
-
-|  |  |
-|---|---|
-| **Driverless USB mic** | USB Audio Class 2.0, 16 kHz mono. Tested with macOS; Windows 10+ and Linux ship the same class driver. |
-| **Wireless mode** | UDP streaming on the local network, 20 ms packets, loss concealment, automatic discovery. |
-| **Lives in the stock firmware** | Installed as one more app in M5Stack's launcher. Nothing else on the device changes. |
-| **On-device setup** | Scan and join Wi-Fi with the built-in keyboard. No phone app, no config files. |
-| **Hold to talk** | Over USB the Cardputer is also a one-key keyboard: hold Space to hold your dictation app's shortcut. [More](docs/talk-key.md) |
-| **Private by pairing** | Turn on pairing, type the code shown on screen into the client once, and wireless audio is encrypted (AES-128-GCM) for that computer only. |
-| **Live spectrogram** | 100 Hz – 8 kHz heat map, one column per 10 ms, the last 2 seconds on screen, plus a segmented level meter with peak hold. |
-| **Clean signal path** | ES8311 codec at +30 dB PGA, DC removal, 100 Hz high-pass (4th order), three gain steps. |
-| **Updates over Wi-Fi** | Checks GitHub Releases from the device and installs new versions, with automatic rollback. |
-| **Open protocol** | A few pages of [spec](protocol/PROTOCOL.md) and reference code on both ends. |
-
-## Screens
+Cardmic is an app for the Cardputer's factory firmware. M5Stack's launcher and
+apps stay as they are; Cardmic adds one more, and the Cardputer becomes a
+microphone your computer can use in two ways.
 
 <table>
   <tr>
-    <td><img src="docs/images/screen-settings.png" width="360" alt="Settings"></td>
-    <td><img src="docs/images/screen-info.png" width="360" alt="Network info"></td>
-    <td><img src="docs/images/screen-about.png" width="360" alt="About and updates"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Settings: Wi-Fi, info, mute, gain, about</sub></td>
-    <td align="center"><sub>Info: signal, addresses, receiver</sub></td>
-    <td align="center"><sub>About: version and over-the-air update</sub></td>
+    <td width="33%" valign="top">
+      <b>USB, no setup</b><br><br>
+      A standard USB Audio Class microphone. No driver and no app: it shows up
+      as <b>Cardmic Microphone</b>.
+    </td>
+    <td width="33%" valign="top">
+      <b>Wi-Fi, no cable</b><br><br>
+      The Cardmic app on your Mac or PC receives the stream and turns it into
+      a microphone every app can choose. It finds the Cardputer by itself.
+    </td>
+    <td width="33%" valign="top">
+      <b>Private when paired</b><br><br>
+      Turn on pairing and plug in once: the two pair themselves. From then on
+      the wireless audio is encrypted, for your paired computers only.
+    </td>
   </tr>
 </table>
 
-<sub>Pixel-exact captures from the device (`cardmic screenshot`), shown at 3x.
-Network details in the captures are placeholders.</sub>
+## The app
 
-## Quick start
+<img src="docs/images/app-usb.png" width="460" align="right" alt="The Cardmic window with the Cardputer plugged in over USB: live spectrogram, device name, and pairing done over USB">
 
-> **Which Cardputer?** Made for the **Cardputer ADV**. The **original
-> Cardputer** is supported from 0.6.0 as *experimental*: it has a different
-> keyboard (a GPIO matrix instead of the ADV's TCA8418 chip) and a PDM
-> microphone instead of the ES8311 codec, and those two paths are ported from
-> M5Stack's own firmware but not yet tested on the hardware. The firmware
-> detects the model at boot; on the original, the IMU, LoRa and GPS apps are
-> hidden because that hardware is missing. Reports welcome.
+A small window in the language of the device: the same spectrogram and
+segmented meter, and a few readouts that say at a glance what is connected
+and how well.
 
-**1. Install the firmware (once).** Open the
+- **Live view.** Spectrogram, level and peak, on the same scale and in the
+  same colours as the Cardputer's screen.
+- **The link at a glance.** Device, link, buffer and loss, with a lock when
+  the audio is encrypted.
+- **The microphone to choose.** The name to pick in your app, with a Copy
+  button.
+- **Pairing without typing.** Plugged in over USB, the Cardputer hands its
+  pairing code to the app. Unplug it and Wi-Fi keeps working, encrypted.
+- **Stays out of the way.** Opens at login, lives in the Dock and the menu
+  bar (the notification area on Windows), and updates itself.
+
+<br clear="right">
+
+## On the Cardputer
+
+<p align="center">
+  <img src="docs/images/screens.png" width="740" alt="Four Cardmic pages on the Cardputer: Settings, Pairing, Info and About">
+</p>
+
+<p align="center"><sub>
+  Settings · Pairing · Info · About. Pixel-exact captures from the device at
+  3x; network details are placeholders.
+</sub></p>
+
+Everything is set up on the device, with its own keyboard: join Wi-Fi, turn
+on pairing, choose a gain step or a talk key, install updates. No phone app,
+no config files.
+
+## Get started
+
+**1. Install the firmware, once.** Open the
 **[browser installer](https://yueze.github.io/Cardmic/)** in Chrome or Edge,
 plug in the Cardputer and click Install. Or flash the `-full.bin` from the
 [latest release](https://github.com/Yueze/Cardmic/releases/latest) with
-esptool: [docs/flashing.md](docs/flashing.md).
+esptool: [docs/flashing.md](docs/flashing.md). Later versions install over
+Wi-Fi from Settings > About.
 
 **2. Use it over USB.** Open **Cardmic** in the launcher, plug the Cardputer
-into your computer, and choose **Cardmic Microphone** as the input.
+into your computer, and choose **Cardmic Microphone** in your app.
 
-**3. Use it over Wi-Fi.** In Cardmic, press `S` > **Wi-Fi** and join your
+**3. Use it over Wi-Fi.** On the Cardputer, Settings > **Wi-Fi** joins your
 network. On the computer, install the Cardmic app from the
 [latest release](https://github.com/Yueze/Cardmic/releases/latest)
-(`Cardmic-macOS.dmg` or `Cardmic-Windows-Setup.exe`) and open it. It finds
-the Cardputer by itself. Click its icon, three dots, for a menu that tells
-you which microphone to choose in your app and pairs the two for privacy. Details:
-[macOS](docs/macos.md) · [Windows](docs/windows.md).
+(`Cardmic-macOS.dmg` or `Cardmic-Windows-Setup.exe`) and a virtual audio
+device (below), then choose the microphone the app names, such as
+**BlackHole 2ch**, in your app. To keep the audio private, turn on
+Settings > **Pairing** on the Cardputer and plug it in once.
 
-Prefer a terminal? The same engine ships as the `cardmic` command
-(`cardmic run`, `cardmic pair CODE`, `cardmic doctor`).
+Step by step: [macOS](docs/macos.md) · [Windows](docs/windows.md).
 
-## What your computer needs
-
-| | macOS | Windows |
+| | macOS 13 or later | Windows 10 or 11 |
 |---|---|---|
-| **USB mode** | Nothing | Nothing |
-| **Wi-Fi mode** | Cardmic app + [BlackHole 2ch](https://existential.audio/blackhole/) | Cardmic app + [VB-CABLE](https://vb-audio.com/Cable/) |
+| **USB** | Nothing to install | Nothing to install |
+| **Wi-Fi** | Cardmic app + [BlackHole 2ch](https://existential.audio/blackhole/) | Cardmic app + [VB-CABLE](https://vb-audio.com/Cable/) |
 
 A virtual device you already have (from Zoom, Teams, Loopback and similar) may
-work instead of BlackHole or VB-CABLE; the app tests them and picks one that
-works.
+do instead: the app tests them and picks one that works.
+
+## Works with
+
+Any app that lets you choose a microphone: dictation, calls, recording,
+streaming. For dictation, the Cardputer can also be the push-to-talk key:
+over USB it is a one-key keyboard as well, and holding `Space` holds your
+dictation app's shortcut. See [Hold to talk](docs/talk-key.md).
+
+## Specifications
+
+| | |
+|---|---|
+| **Audio** | 16 kHz, mono, 16-bit PCM |
+| **Signal path** | Cardputer ADV: ES8311 codec at +30 dB PGA. Original Cardputer: PDM microphone. Then DC removal, 100 Hz high-pass (4th order), three gain steps. |
+| **USB** | USB Audio Class 2.0, plus a HID keyboard when a talk key is set. Verified on macOS; Windows 10+ and Linux include the class driver. |
+| **Wi-Fi** | 2.4 GHz, UDP on the local network, 20 ms packets, automatic discovery |
+| **Buffering** | 60 ms on a clean network. Grows when Wi-Fi stalls (up to 400 ms), shrinks back once it is calm. |
+| **Loss handling** | Packets reordered; gaps of up to 100 ms concealed |
+| **Security** | Optional pairing: a code shown on the device, handed over USB or typed once. Paired audio is encrypted with AES-128-GCM; other computers are refused. |
+| **Display** | 100 Hz to 8 kHz spectrogram, a column every 10 ms; 16-segment meter with peak hold |
+| **Updates** | Device: over Wi-Fi from GitHub Releases, with automatic rollback. App: downloads in the background, installs when idle. |
+| **Devices** | Cardputer ADV; original Cardputer (v1.1) from 0.6.0 |
+| **Computers** | macOS 13 or later, Apple silicon and Intel; Windows 10 or 11, x64 |
+
+<details>
+<summary><b>Which Cardputer?</b></summary>
+<br>
+
+Cardmic is made for the **Cardputer ADV**. The **original Cardputer** is
+supported from 0.6.0. It has a different keyboard (a GPIO matrix instead of
+the ADV's TCA8418) and a PDM microphone instead of the ES8311 codec; both are
+ported from M5Stack's own firmware and have been tested by users on a
+Cardputer v1.1. The firmware detects the model at boot. On the original, the
+IMU, LoRa and GPS apps are hidden, since that hardware is not there.
+</details>
 
 ## Controls
 
 | Key | Where | Action |
 |---|---|---|
-| `S` or `Enter` | Main | Open settings |
-| `M` | Main | Mute / unmute (the stream keeps running, silent) |
+| `S` or `Enter` | Main | Open Settings |
+| `M` | Main | Mute or unmute (the stream keeps running, silent) |
 | `Space` (hold) | Main | Hold to talk, when a talk key is set |
-| `N` | Pairing | New pairing code (unpairs every computer) |
-| `;` `.` | Lists | Move up / down |
+| `;` `.` | Lists | Move up and down |
 | `Enter` | Lists | Select |
-| `Tab` | Password | Show / hide |
+| `Enter` | Pairing | Turn pairing on or off |
+| `N` | Pairing | New code (unpairs every computer) |
+| `Enter` | About | Check for an update, then install it |
+| `Tab` | Password | Show or hide |
 | `Esc` | Settings pages | Back |
 | `G0` | Anywhere | Back; on the main screen, exit to the launcher |
 
 ## How it works
 
 ```
- Cardputer ADV (ESP32-S3)                              Computer
- ┌──────────────────────────────────┐
- │ ES8311 codec ─ I2S 16 kHz        │    USB Audio Class
- │   └─ DC block ─ 100 Hz HPF ─ gain├───────────────────────► any app
- │        │                         │
- │        └─ UDP packets (20 ms) ───┼───── Wi-Fi ─────► cardmic run
- │                                  │                     │ reorder, conceal,
- │ Stock launcher + apps (M5Stack)  │                     │ resample
- └──────────────────────────────────┘                     ▼
-                                               loopback device ─► any app
+ Cardputer (ESP32-S3)                                          Computer
+┌──────────────────────────────────────┐
+│ mic ─ DC block ─ 100 Hz HPF ─ gain ──┼─ USB Audio Class ───────────► any app
+│                             │        │
+│                             └────────┼─ Wi-Fi: UDP, 20 ms ──► Cardmic app
+│                                      │   (AES-GCM if paired)    │ reorder, conceal,
+│ M5Stack launcher and apps, unchanged │                          │ resample
+└──────────────────────────────────────┘                          ▼
+                                                     virtual audio device ─► any app
 ```
 
 The firmware is M5Stack's factory firmware
-([M5Cardputer-UserDemo](https://github.com/m5stack/M5Cardputer-UserDemo), ESP-IDF
-5.4) with Cardmic added as an app in
-[`firmware/main/apps/app_cardmic`](firmware/main/apps/app_cardmic). The desktop
-client, in [`client/`](client), is Rust on [cpal](https://github.com/RustAudio/cpal):
-one receiving engine behind both the menu bar app
-([tray-icon](https://github.com/tauri-apps/tray-icon)) and the `cardmic`
-command.
+([M5Cardputer-UserDemo](https://github.com/m5stack/M5Cardputer-UserDemo),
+ESP-IDF 5.4) with Cardmic added as an app, in
+[`firmware/main/apps/app_cardmic`](firmware/main/apps/app_cardmic). The
+desktop client in [`client/`](client) is Rust: one receiving engine on
+[cpal](https://github.com/RustAudio/cpal) behind both the app (a native
+window around a web view, with [tao](https://github.com/tauri-apps/tao) and
+[wry](https://github.com/tauri-apps/wry)) and the `cardmic` command-line
+tool. The wire format is short and open:
+[protocol/PROTOCOL.md](protocol/PROTOCOL.md).
 
 ## Build from source
 
@@ -155,7 +207,7 @@ idf.py build
 ./tools/package.sh            # dist/cardmic-ota.bin and dist/cardmic-<ver>-full.bin
 ```
 
-**Client** (Rust 1.90+):
+**Client** (Rust 1.90 or later):
 
 ```bash
 cd client
@@ -167,38 +219,36 @@ tray/macos/bundle.sh          # macOS: target/macos/Cardmic.app and Cardmic.dmg
 On Windows, `tray/windows/cardmic.iss` builds the installer with
 [Inno Setup](https://jrsoftware.org/isinfo.php).
 
-No hardware? `cardmic-synth` stands in for a device and streams a test tone,
-so the client can be developed end to end:
+No hardware? `cardmic-synth` stands in for a Cardputer and streams a test
+tone, so the client can be developed end to end:
 
 ```bash
 cargo run -p cardmic-synth &                         # listens on UDP 41235
 cargo run -p cardmic -- run --device 127.0.0.1:41235
 ```
 
-## Status and roadmap
-
-Cardmic is young. What works today, and what is next:
+## Status
 
 - [x] USB microphone, verified on macOS
-- [x] Wireless streaming with the desktop client, verified on macOS and Windows
-- [x] Menu bar app (macOS) and tray app (Windows); verified on macOS
-- [x] On-device Wi-Fi setup, settings, over-the-air updates
-- [x] Pairing and encryption for wireless mode (off by default; turn it on in Settings > Pairing)
-- [x] Hold-to-talk key for dictation apps (USB keyboard + microphone)
+- [x] Wireless streaming, verified on macOS and Windows
+- [x] Desktop app with pairing over USB and self-updates: verified on macOS; on Windows, built and unit-tested in CI
+- [x] On-device Wi-Fi setup, settings and over-the-air updates
+- [x] Encrypted wireless audio for paired computers
+- [x] Hold-to-talk key for dictation apps
+- [x] Original Cardputer support
 - [x] Browser installer
-- [ ] A registered USB vendor/product ID (the firmware uses a development ID for now)
-- [ ] An M5Burner listing
+- [ ] A registered USB vendor and product ID (a development ID for now)
 - [ ] Signed and notarized desktop builds (until then, macOS asks you to confirm the first launch)
-- [ ] Cardmic's own virtual microphone, so no BlackHole or VB-CABLE is needed
+- [ ] Cardmic's own virtual microphone, so that no BlackHole or VB-CABLE is needed
+- [ ] An M5Burner listing
 
 Issues and pull requests are welcome.
 
 ## License
 
-[Apache License 2.0](LICENSE), from version 0.6.0. Releases up to
-0.6.0-beta.2 were published under the MIT License and remain so.
+[Apache License 2.0](LICENSE).
 
-The firmware is a fork of M5Stack's MIT-licensed factory firmware: its files
-keep their MIT license (see their headers), and Cardmic's own code is under
-Apache 2.0. See [NOTICE.md](NOTICE.md) for third-party credits. Cardmic is an
-independent project, not affiliated with M5Stack.
+The firmware is a fork of M5Stack's MIT-licensed factory firmware: the files
+that come from it keep their MIT license (see their headers), and Cardmic's
+own code is under Apache 2.0. See [NOTICE.md](NOTICE.md) for third-party
+credits. Cardmic is an independent project, not affiliated with M5Stack.
