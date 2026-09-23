@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 — 2026-09-22
+## 0.6.0 — 2026-09-23
 
 - **Pairing and encryption.** Settings > Pairing shows a 12-character code;
   `cardmic pair CODE` stores it on the computer. With pairing on, the device

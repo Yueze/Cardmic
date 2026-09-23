@@ -31,5 +31,5 @@ if(CARDMIC_DEV)
 endif()
 
 # Single source of the firmware version (shown in About, compared by OTA).
-set(PROJECT_VER "0.6.0-beta.2")
+set(PROJECT_VER "0.6.0")
 project(cardputer-adv)
