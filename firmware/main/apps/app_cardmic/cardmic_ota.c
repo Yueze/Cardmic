@@ -101,7 +101,7 @@ static void ota_task(void *arg)
             strlcpy(s_latest, esp_app_get_description()->version, sizeof(s_latest));
             s_state = CARDMIC_OTA_UP_TO_DATE;
         } else if (s_http_status == 0) {
-            fail("NO CONNECTION TO GITHUB");
+            fail("NO CONNECTION TO UPDATE SERVER");
         } else {
             snprintf(s_error, sizeof(s_error), "CHECK FAILED (HTTP %d)", s_http_status);
             s_state = CARDMIC_OTA_FAILED;

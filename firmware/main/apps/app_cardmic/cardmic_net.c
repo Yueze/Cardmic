@@ -152,29 +152,32 @@ static bool tags_equal(const uint8_t *a, const uint8_t *b, size_t n)
     return d == 0;
 }
 
+typedef enum { DISCOVERY_NONE, DISCOVERY_ACCEPTED, DISCOVERY_REFUSED } discovery_t;
+
 // Is this a discovery packet, and may its sender receive audio? Sets
-// *encrypted for sessions that must be encrypted.
-static bool accept_discovery(const uint8_t *buf, ssize_t n, bool required, const uint8_t *mac_key, bool *encrypted)
+// *encrypted for sessions that must be encrypted. REFUSED: a discovery
+// without the current pairing code (never paired, or the code changed).
+static discovery_t accept_discovery(const uint8_t *buf, ssize_t n, bool required, const uint8_t *mac_key, bool *encrypted)
 {
     const bool v1 = n == (ssize_t)(sizeof(DISCOVERY) - 1) && memcmp(buf, DISCOVERY, n) == 0;
     const bool v2 = n == DISCOVERY_V2_LEN && memcmp(buf, DISCOVERY_V2, sizeof(DISCOVERY_V2) - 1) == 0;
     if (!v1 && !v2) {
-        return false;
+        return DISCOVERY_NONE;
     }
     if (!required) {
         *encrypted = false;  // pairing off: anyone on the network, unencrypted
-        return true;
+        return DISCOVERY_ACCEPTED;
     }
     if (v2) {
         uint8_t mac[32];
         const mbedtls_md_info_t *sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
         if (mbedtls_md_hmac(sha256, mac_key, 16, buf, 29, mac) == 0 && tags_equal(mac, buf + 29, 16)) {
             *encrypted = true;
-            return true;
+            return DISCOVERY_ACCEPTED;
         }
     }
     s_unpaired_at = xTaskGetTickCount();
-    return false;
+    return DISCOVERY_REFUSED;
 }
 
 static void net_task(void *arg)
@@ -248,6 +251,7 @@ static void net_task(void *arg)
         }
 #endif
         bool session_encrypted = false;
+        discovery_t discovery = DISCOVERY_NONE;
         // Screenshots show whatever is on screen; not while pairing is on. Say
         // so rather than staying silent, which reads as "device offline".
         if (pair_required && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
@@ -264,7 +268,18 @@ static void net_task(void *arg)
             s_shot_to = from;
             __sync_synchronize();
             s_shot_wanted = true;
-        } else if (n > 0 && accept_discovery(buf, n, pair_required, mac_key, &session_encrypted)) {
+        } else if (n > 0 && (discovery = accept_discovery(buf, n, pair_required, mac_key, &session_encrypted)) ==
+                                DISCOVERY_REFUSED) {
+            // Tell the computer why nothing comes, at most once a second, so it
+            // can ask for the (new) code instead of searching forever. It
+            // learns only that pairing is on, which the screen shows anyway.
+            static TickType_t last_told;
+            if (xTaskGetTickCount() - last_told > pdMS_TO_TICKS(1000)) {
+                last_told = xTaskGetTickCount();
+                static const char denied[] = "CARDMIC_PAIRING_REQUIRED";
+                sendto(sock, denied, sizeof(denied) - 1, 0, (struct sockaddr *)&from, sizeof(from));
+            }
+        } else if (discovery == DISCOVERY_ACCEPTED) {
             bool same = s_receiver_active && from.sin_addr.s_addr == receiver.sin_addr.s_addr &&
                         from.sin_port == receiver.sin_port;
             // First-receiver lock: while a session is live, ignore discovery

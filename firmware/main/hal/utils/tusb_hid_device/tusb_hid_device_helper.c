@@ -57,10 +57,26 @@ static const uint8_t hid_configuration_descriptor[] = {
 
 /********* TinyUSB HID callbacks ***************/
 
+// Cardmic owns USB while it is open and brings its own HID reports; these
+// weak defaults leave the stock behaviour untouched otherwise.
+__attribute__((weak)) const uint8_t *cardmic_hid_report_descriptor(uint8_t instance)
+{
+    (void)instance;
+    return NULL;
+}
+__attribute__((weak)) uint16_t cardmic_hid_get_report(uint8_t instance, uint8_t report_id, hid_report_type_t type,
+                                                      uint8_t *buffer, uint16_t reqlen)
+{
+    (void)instance, (void)report_id, (void)type, (void)buffer, (void)reqlen;
+    return 0;
+}
+
 // Invoked when received GET HID REPORT DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
+    const uint8_t *cardmic = cardmic_hid_report_descriptor(instance);
+    if (cardmic) return cardmic;
     // We use only one interface and one HID report descriptor, so we can ignore parameter 'instance'
     return hid_report_descriptor;
 }
@@ -71,13 +87,7 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer,
                                uint16_t reqlen)
 {
-    (void)instance;
-    (void)report_id;
-    (void)report_type;
-    (void)buffer;
-    (void)reqlen;
-
-    return 0;
+    return cardmic_hid_get_report(instance, report_id, report_type, buffer, reqlen);
 }
 
 // Invoked when received SET_REPORT control request or

@@ -31,6 +31,7 @@
 #include <driver/i2s_pdm.h>
 #include <driver/i2s_std.h>
 #include <esp_app_desc.h>
+#include <esp_mac.h>
 #include <esp_netif.h>
 #include <esp_timer.h>
 #include <esp_ota_ops.h>
@@ -535,10 +536,22 @@ void pair_apply_task(void*)
     vTaskDelete(nullptr);
 }
 
-// Hand the current pairing state to the network side. Deriving the keys
-// takes a moment, so it runs in its own task.
+// What a computer reads over USB to pair itself (see cardmic_usb.h): the
+// code while pairing is on, and this Cardputer's name.
+void update_usb_identity()
+{
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char name[20];
+    snprintf(name, sizeof(name), "Cardmic-%02X%02X", mac[4], mac[5]);
+    cardmic_usb_set_identity(s_pair_required ? s_pair_code : "", name, esp_app_get_description()->version);
+}
+
+// Hand the current pairing state to the network side and to USB. Deriving
+// the keys takes a moment, so it runs in its own task.
 void pair_apply()
 {
+    update_usb_identity();
     if (!s_pair_required) {
         cardmic_net_set_pairing(false, nullptr, nullptr);
         return;
@@ -1213,8 +1226,8 @@ void draw_pairing()
     char code[CARDMIC_PAIR_CODE_LEN + 3];
     cardmic_pair_format(s_demo ? "7K2M9QXB4TPA" : s_pair_code, code);  // docs screenshots get a sample code
     text(&fonts::FreeMonoBold9pt7b, C_TEXT, W / 2, 17, code, textdatum_t::top_center);
-    text(&fonts::Font0, C_DIM, 2, 38, "ON YOUR COMPUTER, RUN ONCE:");
-    text(&fonts::Font0, C_ACCENT, 2, 49, (std::string("cardmic pair ") + code).c_str());
+    text(&fonts::Font0, C_DIM, 2, 38, "ON YOUR COMPUTER, OPEN CARDMIC:");
+    text(&fonts::Font0, C_ACCENT, 2, 49, "PAIRING > PAIR... > TYPE THIS CODE");
 
     const char* status;
     uint32_t col;
@@ -1254,7 +1267,7 @@ void draw_about()
             if (!GetHAL().isWifiConnected()) text(&fonts::Font0, C_DIM, 2, y, "CONNECT WI-FI TO CHECK FOR UPDATES");
             break;
         case CARDMIC_OTA_CHECKING:
-            text(&fonts::Font0, C_TEXT, 2, y, "CHECKING GITHUB...");
+            text(&fonts::Font0, C_TEXT, 2, y, "CHECKING FOR UPDATES...");
             break;
         case CARDMIC_OTA_UP_TO_DATE:
             text(&fonts::Font0, C_ACCENT, 2, y, ("UP TO DATE  V" + std::string(app->version) + " IS THE LATEST").c_str());

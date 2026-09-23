@@ -36,17 +36,20 @@
 #define AUDIO_CHANNEL_COUNT CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX
 #define USB_AUDIO_EP_IN 0x81
 #define USB_HID_EP_IN 0x82
-#define USB_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_AUDIO_MIC_ONE_CH_DESC_LEN)
-#define USB_CONFIG_TOTAL_LEN_KB (USB_CONFIG_TOTAL_LEN + TUD_HID_DESC_LEN)
+// Every configuration is the microphone plus one HID interface: an identity
+// report the Cardmic app reads to pair over USB, and, with the talk key on,
+// the keyboard too (same interface, so no extra endpoint).
+#define USB_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_AUDIO_MIC_ONE_CH_DESC_LEN + TUD_HID_DESC_LEN)
 // Mic-only and mic+keyboard are different USB products: hosts (Windows in
-// particular) cache a device's interfaces per VID/PID.
-#define USB_PID_MIC 0x4011
-#define USB_PID_MIC_KEYBOARD 0x4012
+// particular) cache a device's interfaces per VID/PID. 0x4011/0x4012 were the
+// same without the identity report.
+#define USB_PID_MIC 0x4015
+#define USB_PID_MIC_KEYBOARD 0x4016
 #ifdef CARDMIC_DEV_TOOLS
 // Development builds carry a USB serial port as well, so they are different
 // USB products again (hosts cache a device's interfaces per VID/PID).
-#define USB_PID_DEV_MIC 0x4013
-#define USB_PID_DEV_MIC_KEYBOARD 0x4014
+#define USB_PID_DEV_MIC 0x4017
+#define USB_PID_DEV_MIC_KEYBOARD 0x4018
 #define USB_CDC_EP_NOTIF 0x83
 #define USB_CDC_EP_OUT 0x03
 #define USB_CDC_EP_IN 0x84
@@ -58,9 +61,8 @@ enum {
     ITF_NUM_AUDIO_CONTROL = 0,
     ITF_NUM_AUDIO_STREAMING,
     ITF_NUM_HID,
-    ITF_NUM_TOTAL_KB,
+    ITF_NUM_TOTAL,
 };
-#define ITF_NUM_TOTAL ITF_NUM_HID
 
 enum {
     STRID_LANGID = 0,
@@ -70,6 +72,7 @@ enum {
     STRID_AUDIO_INTERFACE,
     STRID_HID_INTERFACE,
     STRID_CDC_INTERFACE,
+    STRID_ID_INTERFACE,
 };
 
 static volatile bool s_installed;
@@ -107,27 +110,40 @@ static tusb_desc_device_t s_device_descriptor = {
     .bNumConfigurations = 1,
 };
 
-// The keyboard interface reuses the stock firmware's HID report descriptor
-// (keyboard as report 1, mouse as report 2): its tud_hid_descriptor_report_cb()
-// is the one linked, and it returns that descriptor for every instance. This
-// copy exists only so the configuration descriptor states the right length.
-static const uint8_t s_hid_report_len_ref[] = {
+// Identity: vendor-defined feature report 3, 63 bytes of ASCII, e.g.
+// "CM1;pair=1;code=7K2M9QXB4TPA;name=Cardmic-05AC;fw=0.6.0". The code is
+// there only while pairing is on: plugging in is what pairs a computer.
+#define CARDMIC_ID_REPORT 3
+#define CARDMIC_ID_LEN 63
+#define TUD_HID_REPORT_DESC_CARDMIC_ID                                                           \
+    HID_USAGE_PAGE_N(0xFF00, 2), HID_USAGE(0x01), HID_COLLECTION(HID_COLLECTION_APPLICATION),  \
+        HID_REPORT_ID(CARDMIC_ID_REPORT) HID_USAGE(0x02), HID_LOGICAL_MIN(0x00),                \
+        HID_LOGICAL_MAX_N(0x00FF, 2), HID_REPORT_SIZE(8), HID_REPORT_COUNT(CARDMIC_ID_LEN),      \
+        HID_FEATURE(HID_DATA | HID_VARIABLE | HID_ABSOLUTE), HID_COLLECTION_END
+
+static const uint8_t s_hid_id_only[] = {TUD_HID_REPORT_DESC_CARDMIC_ID};
+// With the talk key: the stock keyboard (report 1) and mouse (report 2), then identity.
+static const uint8_t s_hid_kb_and_id[] = {
     TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(HID_ITF_PROTOCOL_KEYBOARD)),
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE)),
+    TUD_HID_REPORT_DESC_CARDMIC_ID,
 };
+static char s_identity[CARDMIC_ID_LEN + 1] = "CM1;pair=0";
 
 #ifndef CARDMIC_DEV_TOOLS
 static const uint8_t s_configuration_descriptor[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, USB_CONFIG_TOTAL_LEN, 0x00, 100),
     TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
                                     AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_ID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_id_only),
+                       USB_HID_EP_IN, 16, 50),
 };
 
 static const uint8_t s_configuration_descriptor_kb[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_KB, 0, USB_CONFIG_TOTAL_LEN_KB, 0x00, 100),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, USB_CONFIG_TOTAL_LEN, 0x00, 100),
     TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
                                     AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_len_ref),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_kb_and_id),
                        USB_HID_EP_IN, 16, 10),
 };
 
@@ -141,27 +157,29 @@ static const char *s_string_descriptor[] = {
     "Cardmic Microphone",
     "Cardmic Talk Key",
     "Cardmic Dev Console",
+    "Cardmic",
 };
 
 #ifdef CARDMIC_DEV_TOOLS
 // Same two configurations plus a serial port (interfaces after the others).
 #define USB_CONFIG_TOTAL_LEN_DEV (USB_CONFIG_TOTAL_LEN + TUD_CDC_DESC_LEN)
-#define USB_CONFIG_TOTAL_LEN_DEV_KB (USB_CONFIG_TOTAL_LEN_KB + TUD_CDC_DESC_LEN)
 
 static const uint8_t s_configuration_descriptor_dev[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL + 2, 0, USB_CONFIG_TOTAL_LEN_DEV, 0x00, 100),
     TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
                                     AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
-    TUD_CDC_DESCRIPTOR(ITF_NUM_HID, STRID_CDC_INTERFACE, USB_CDC_EP_NOTIF, 8, USB_CDC_EP_OUT, USB_CDC_EP_IN, 64),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_ID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_id_only),
+                       USB_HID_EP_IN, 16, 50),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_TOTAL, STRID_CDC_INTERFACE, USB_CDC_EP_NOTIF, 8, USB_CDC_EP_OUT, USB_CDC_EP_IN, 64),
 };
 
 static const uint8_t s_configuration_descriptor_dev_kb[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_KB + 2, 0, USB_CONFIG_TOTAL_LEN_DEV_KB, 0x00, 100),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL + 2, 0, USB_CONFIG_TOTAL_LEN_DEV, 0x00, 100),
     TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
                                     AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_len_ref),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_kb_and_id),
                        USB_HID_EP_IN, 16, 10),
-    TUD_CDC_DESCRIPTOR(ITF_NUM_TOTAL_KB, STRID_CDC_INTERFACE, USB_CDC_EP_NOTIF, 8, USB_CDC_EP_OUT, USB_CDC_EP_IN, 64),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_TOTAL, STRID_CDC_INTERFACE, USB_CDC_EP_NOTIF, 8, USB_CDC_EP_OUT, USB_CDC_EP_IN, 64),
 };
 
 static QueueHandle_t s_dev_lines;  // command lines from the USB serial port
@@ -341,6 +359,36 @@ bool cardmic_usb_talk_key(uint8_t modifiers, uint8_t keycode, bool down)
     return tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, down ? modifiers : 0, keycode ? keys : NULL);
 }
 bool cardmic_usb_streaming(void) { return s_installed && s_streaming; }
+
+void cardmic_usb_set_identity(const char *code, const char *name, const char *fw)
+{
+    char id[CARDMIC_ID_LEN + 1];
+    if (code && *code) {
+        snprintf(id, sizeof(id), "CM1;pair=1;code=%s;name=%s;fw=%s", code, name, fw);
+    } else {
+        snprintf(id, sizeof(id), "CM1;pair=0;name=%s;fw=%s", name, fw);
+    }
+    strlcpy(s_identity, id, sizeof(s_identity));
+}
+
+// Called from the stock HID helper's TinyUSB callbacks while Cardmic owns USB.
+const uint8_t *cardmic_hid_report_descriptor(uint8_t instance)
+{
+    (void)instance;
+    if (!s_installed) return NULL;
+    return s_keyboard ? s_hid_kb_and_id : s_hid_id_only;
+}
+
+uint16_t cardmic_hid_get_report(uint8_t instance, uint8_t report_id, hid_report_type_t type, uint8_t *buffer,
+                                uint16_t reqlen)
+{
+    (void)instance;
+    if (!s_installed || report_id != CARDMIC_ID_REPORT || type != HID_REPORT_TYPE_FEATURE) return 0;
+    uint16_t n = reqlen < CARDMIC_ID_LEN ? reqlen : CARDMIC_ID_LEN;
+    memset(buffer, 0, n);
+    memcpy(buffer, s_identity, strnlen(s_identity, n));
+    return n;
+}
 bool cardmic_usb_host_muted(void) { return s_mute[0] || s_mute[1]; }
 
 void cardmic_usb_write(const int16_t *samples, size_t count)

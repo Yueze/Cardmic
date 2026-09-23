@@ -25,6 +25,10 @@ extern "C" {
 // already owns TinyUSB.
 esp_err_t cardmic_usb_start(bool with_keyboard);
 
+// What the Cardmic app reads over USB to pair: the pairing code (NULL or ""
+// while pairing is off), the device's name and firmware version.
+void cardmic_usb_set_identity(const char *code, const char *name, const char *fw);
+
 // Uninstall TinyUSB so other apps (USB keyboard) can use USB again.
 void cardmic_usb_stop(void);
 
