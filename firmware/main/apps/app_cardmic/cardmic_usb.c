@@ -18,6 +18,8 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_private/usb_phy.h"
+#include "esp_system.h"
+#include "hal/usb_serial_jtag_ll.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #ifdef CARDMIC_DEV_TOOLS
@@ -224,10 +226,27 @@ static void dev_cdc_start(void)
 }
 #endif
 
+// The mux that gives the internal USB PHY to TinyUSB lives in the RTC domain
+// and survives esp_restart(). Without this, a software restart while Cardmic
+// is open (after an OTA update, or a dev reboot into the ROM bootloader) comes
+// back with no USB device at all, and the host keeps showing the stale
+// microphone until the Cardputer is power-cycled.
+static void give_phy_back_on_restart(void)
+{
+    if (s_installed) {
+        tud_disconnect();
+    }
+    usb_serial_jtag_ll_phy_enable_external(false);  // internal PHY -> USB-Serial-JTAG
+}
+
 esp_err_t cardmic_usb_start(bool with_keyboard)
 {
     if (s_installed) {
         return ESP_OK;
+    }
+    static bool s_restart_hook;
+    if (!s_restart_hook) {
+        s_restart_hook = esp_register_shutdown_handler(give_phy_back_on_restart) == ESP_OK;
     }
     s_keyboard = with_keyboard;
 #ifdef CARDMIC_DEV_TOOLS

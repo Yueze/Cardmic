@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const USAGE: &str = "\
-cardmic — use an M5Stack Cardputer ADV as a wireless microphone
+cardmic — use an M5Stack Cardputer (ADV or original) as a wireless microphone
 
 USAGE:
     cardmic run [--output NAME] [--device ADDR:PORT]...
@@ -34,6 +34,7 @@ USAGE:
     cardmic screenshot DEVICE_IP [--page NAME] [-o FILE] [--scale N]
     cardmic pair CODE
     cardmic unpair
+    cardmic --version
 
 COMMANDS:
     run       Receive the Cardputer's audio and play it into a loopback device.
@@ -62,6 +63,10 @@ fn main() -> ExitCode {
         Some("screenshot") => screenshot::run(&args[1..]),
         Some("pair") => pair(&args[1..]),
         Some("unpair") => unpair(),
+        Some("-V" | "--version") => {
+            println!("cardmic {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         Some("-h" | "--help") | None => {
             print!("{USAGE}");
             Ok(())

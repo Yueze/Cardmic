@@ -1164,7 +1164,7 @@ void draw_settings()
     // Only while the talk-key row is selected, so it cannot be read as a note
     // about Wi-Fi or any other row.
     if (s_talk_key != s_talk_active && s_set_sel == SET_TALK) {
-        text(&fonts::Font0, C_WARN, 2, 98, "TALK KEY APPLIES WHEN YOU REOPEN CARDMIC");
+        text(&fonts::Font0, C_WARN, 2, 98, "TALK KEY: REOPEN CARDMIC TO APPLY");  // 33 chars fits 204 px
     } else {
         hint_row({{";.", "MOVE"}, {"ENT", "OPEN"}, {"G0", "BACK"}});
     }

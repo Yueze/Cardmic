@@ -26,11 +26,18 @@
   ADV's TCA8418 keyboard chip, and Cardmic records from the PDM microphone
   instead of the ES8311 codec; the IMU, LoRa and GPS apps are hidden. Before,
   the launcher came up but ignored every key, which looked like a freeze (#1).
-  Both paths follow M5Stack's own firmware for that board but are not yet
-  tested on hardware.
+  Confirmed on a Cardputer v1.1 by the reporter: keyboard and Cardmic work.
+  The PDM microphone is clocked at 2.048 MHz, as in M5Unified, and
+  Settings > Info shows the measured capture rate ("MIC").
 - **"Keyboard not found" screen** for any other device, instead of a
   launcher that silently ignores keys.
 - About shows the model (Cardputer ADV or Cardputer).
+- **USB comes back after a restart.** Restarting while Cardmic is open (for
+  example right after an over-the-air update) used to leave the Cardputer
+  with no USB device until it was unplugged; the USB port is now handed back
+  to the stock serial port on every restart.
+- Client: the jitter buffer may grow to 400 ms on very busy networks (was
+  240 ms). `cardmic --version`.
 - Update check: a pre-release (e.g. 0.6.0-beta.1) now ranks below the
   release of the same number, so beta testers still get the final version.
 
