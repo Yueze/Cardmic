@@ -1,0 +1,61 @@
+[package]
+name = "cardmic-tray"
+description = "Cardmic menu bar (macOS) and tray (Windows) app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# tray-icon and muda need 1.90
+rust-version = "1.90"
+
+[[bin]]
+# Not "Cardmic": it would collide with the `cardmic` CLI in target/ on
+# case-insensitive file systems (macOS, Windows). Packaging renames it.
+name = "cardmic-app"
+path = "src/main.rs"
+
+[dependencies]
+cardmic-core.workspace = true
+cardmic-audio.workspace = true
+cardmic-engine.workspace = true
+cpal.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tray-icon = "0.25"
+tao = "0.37"
+
+[build-dependencies]
+winresource = "0.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2-core-foundation",
+    "NSApplication",
+    "NSButton",
+    "NSControl",
+    "NSEvent",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

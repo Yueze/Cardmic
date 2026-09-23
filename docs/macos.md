@@ -8,57 +8,70 @@ System Settings > Sound > Input.
 
 ## Wireless mode
 
-Wireless mode needs two things on the Mac: the Cardmic client, which receives
-the audio, and a *loopback* audio device, which turns it into a microphone that
-any app can select.
+Wireless mode needs the Cardmic app, which receives the audio, and a
+*loopback* audio device, which turns it into a microphone that any app can
+select.
 
 ### 1. A loopback device
 
 Install [BlackHole 2ch](https://existential.audio/blackhole/) (free, open
-source):
-
-```bash
-brew install blackhole-2ch
-```
+source), or with Homebrew: `brew install blackhole-2ch`.
 
 Already have a virtual device from Zoom, Teams, Loopback or similar? It may
-work as is. `cardmic doctor` tests every device and tells you which ones
-genuinely loop audio back.
+work as is: the app tests your virtual devices and uses one that loops sound
+back.
 
-### 2. The client
+### 2. The app
 
-Download `cardmic-macos-universal.tar.gz` from the
-[latest release](https://github.com/Yueze/Cardmic/releases/latest), then:
+Download `Cardmic-macOS.dmg` from the
+[latest release](https://github.com/Yueze/Cardmic/releases/latest), open it and
+drag **Cardmic** to **Applications**. Then open Cardmic from Applications.
 
-```bash
-tar xzf cardmic-macos-universal.tar.gz
-xattr -d com.apple.quarantine cardmic   # the binary is not notarized yet
-./cardmic doctor
-```
+The app is not notarized by Apple yet, so the first time macOS says it cannot
+check it. Open **System Settings > Privacy & Security**, scroll down and click
+**Open Anyway** next to Cardmic. After that it opens normally.
+
+Cardmic has no window and no Dock icon. It lives in the menu bar as three
+dots: rings while it looks for the Cardputer, filled when audio is flowing.
+If your menu bar is full, macOS may hide it behind other icons or the camera
+notch; open Cardmic again from Applications or Spotlight at any time and its
+menu appears where you are.
+
+The first time, macOS asks to let Cardmic use the microphone. Allow it:
+Cardmic records from your virtual audio devices for a moment, once, to find
+one that works. It never records your real microphones.
 
 ### 3. Use it
 
 1. On the Cardputer, open Cardmic and connect to Wi-Fi (Settings > Wi-Fi). The
-   Mac must be on the same network.
-2. On the Mac, run `./cardmic run`. The WIFI dot on the device turns green when
-   the stream is live.
-3. In your app, choose **BlackHole 2ch** (or the device `cardmic run` names)
-   as the microphone.
+   Mac must be on the same network. If macOS asks to let Cardmic find devices
+   on your local network, allow it.
+2. The icon fills in and the menu says **Connected over Wi-Fi**.
+3. In your app, choose the microphone the menu names, for example
+   **BlackHole 2ch**.
 
-Leave `cardmic run` open while you talk. Press Ctrl-C to stop.
+Cardmic opens at login (System Settings > General > Login Items); the menu
+has a switch to turn that off.
 
 ### 4. Pair it (recommended)
 
-Out of the box, anyone on the same Wi-Fi who runs the client first could
-receive the audio. Pairing fixes that:
+Out of the box, anyone on the same Wi-Fi who runs Cardmic first could receive
+the audio. Pairing fixes that:
 
 1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on. Note the
    code, e.g. `7K2M-9QXB-4TPA`.
-2. On the Mac, once: `./cardmic pair 7K2M-9QXB-4TPA`
-3. Run `./cardmic run` as before. It prints `Connected ... (encrypted)`.
+2. In the Cardmic menu: **Pair with Cardputer…**, and type the code.
 
-Now only computers that know the code receive audio, and it is encrypted.
-`N` on the Pairing page makes a new code, which unpairs every computer.
+The menu then says **Connected over Wi-Fi · encrypted**. Only computers that
+know the code receive audio. `N` on the Pairing page makes a new code, which
+unpairs every computer.
+
+### Command line
+
+The app bundle also contains the command-line client:
+`/Applications/Cardmic.app/Contents/Resources/cardmic` (`run`, `pair`,
+`doctor`, `screenshot`). Quit the app first: only one of them can receive at
+a time.
 
 ## Hold to talk
 
@@ -69,14 +82,17 @@ hold Space. See [talk-key.md](talk-key.md).
 
 - **Brief stutter in the first seconds.** Wi-Fi on a Mac can pause for about
   100 ms roughly once a second, often because of AWDL, the link behind
-  AirDrop and Continuity. `cardmic run` notices and grows its buffer (the
-  status line shows `buffer 155/160 ms`); after that, audio is continuous.
+  AirDrop and Continuity. Cardmic notices and grows its buffer; after that,
+  audio is continuous.
   For the lowest latency you can turn AWDL off until the next restart with
   `sudo ifconfig awdl0 down` (AirDrop stops working until it is back on), or
   put the Mac on Ethernet.
 
-- The first time `cardmic run` starts, macOS may ask to allow incoming network
-  connections. Allow it; the audio arrives over UDP.
+- macOS may ask to allow incoming network connections. Allow it; the audio
+  arrives over UDP.
 - Networks that block broadcast (some office and hotel Wi-Fi) need the
-  device's address: `./cardmic run --device 192.168.1.42:41234`. The address
-  is shown in Cardmic > Settings > Info.
+  device's address, which only the command line takes for now:
+  `cardmic run --device 192.168.1.42:41234`. The address is shown in
+  Cardmic > Settings > Info.
+- Something not working? The app keeps a short log in
+  `~/Library/Logs/Cardmic.log`; attach it to an issue.

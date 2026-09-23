@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "audio", "app", "synth"]
+members = ["core", "audio", "engine", "app", "tray", "synth"]
 
 [workspace.package]
 version = "0.6.0"
@@ -11,6 +11,8 @@ repository = "https://github.com/Yueze/Cardmic"
 
 [workspace.dependencies]
 cardmic-core = { path = "core" }
+cardmic-audio = { path = "audio" }
+cardmic-engine = { path = "engine" }
 # cpal 0.18 is a hard floor: 0.18.0 removed DeviceTrait::name(), changed
 # sample_rate() to u32 and build_*_stream to take StreamConfig by value.
 # It also postdates the 0.17.2/0.17.3 Communications-device regression on

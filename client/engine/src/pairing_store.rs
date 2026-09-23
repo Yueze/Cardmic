@@ -7,7 +7,8 @@
 use cardmic_core::pairing::{normalize_code, Keys};
 use std::path::PathBuf;
 
-fn config_dir() -> Option<PathBuf> {
+/// Cardmic's per-user configuration directory.
+pub fn config_dir() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if cfg!(target_os = "macos") {
         env("HOME").map(|h| h.join("Library/Application Support/cardmic"))

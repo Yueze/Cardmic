@@ -39,21 +39,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - run: |
-          cargo build --release -p cardmic --target aarch64-apple-darwin
-          cargo build --release -p cardmic --target x86_64-apple-darwin
+      - name: Menu bar app (Cardmic.app in a disk image)
+        run: tray/macos/bundle.sh --universal
+      - name: Command-line client
+        run: |
           lipo -create -output cardmic \
             target/aarch64-apple-darwin/release/cardmic \
             target/x86_64-apple-darwin/release/cardmic
           tar czf cardmic-macos-universal.tar.gz cardmic
+          cp target/macos/Cardmic.dmg Cardmic-macOS.dmg
       - uses: actions/upload-artifact@v4
         with:
-          name: cardmic-macos-universal
-          path: client/cardmic-macos-universal.tar.gz
+          name: cardmic-macos
+          path: |
+            client/Cardmic-macOS.dmg
+            client/cardmic-macos-universal.tar.gz
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: client/cardmic-macos-universal.tar.gz
+          files: |
+            client/Cardmic-macOS.dmg
+            client/cardmic-macos-universal.tar.gz
 
   release-windows:
     needs: test
@@ -61,15 +67,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: |
-          cargo build --release -p cardmic
-          Compress-Archive -Path target/release/cardmic.exe -DestinationPath cardmic-windows-x64.zip
+      - name: Build
+        run: cargo build --release -p cardmic -p cardmic-tray
         shell: pwsh
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$version" tray\windows\cardmic.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item target\windows\Cardmic-Setup.exe Cardmic-Windows-Setup.exe
+          Compress-Archive -Path target/release/cardmic.exe -DestinationPath cardmic-windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: cardmic-windows-x64
-          path: client/cardmic-windows-x64.zip
+          name: cardmic-windows
+          path: |
+            client/Cardmic-Windows-Setup.exe
+            client/cardmic-windows-x64.zip
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: client/cardmic-windows-x64.zip
+          files: |
+            client/Cardmic-Windows-Setup.exe
+            client/cardmic-windows-x64.zip

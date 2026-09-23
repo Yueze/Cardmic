@@ -3,26 +3,18 @@
 //! Receives the Cardputer's wireless microphone stream and plays it into a
 //! loopback audio device, where every other app sees it as a microphone.
 
-mod net;
-mod pairing_store;
 mod png;
 mod screenshot;
 
 use cardmic_audio::probe::{self, Verdict};
-use cardmic_audio::sink::{OutputSink, SampleQueue};
 use cardmic_audio::Candidate;
-use cardmic_core::dsp::{i16_to_f32, Resampler};
-use cardmic_core::pairing::{format_code, normalize_code, Keys, OpenError};
-use cardmic_core::protocol::{
-    Packet, DISCOVERY_INTERVAL, DISCOVERY_MESSAGE, RECEIVER_TIMEOUT, SAMPLES_PER_PACKET,
-    SAMPLE_RATE,
-};
-use cardmic_core::sequencer::{Action, Sequencer};
+use cardmic_core::pairing::{format_code, normalize_code};
+use cardmic_engine::output::{self, install_hint};
+use cardmic_engine::{pairing_store, Engine, Event, Link, Options};
 use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const USAGE: &str = "\
 cardmic — use an M5Stack Cardputer (ADV or original) as a wireless microphone
@@ -126,7 +118,7 @@ fn doctor() -> Result<(), String> {
     }
 
     println!();
-    match preferred(&working) {
+    match output::preferred(&working) {
         Some(best) => {
             println!("OK. Cardmic will play into: {}", best.output);
             println!("In your app, choose \"{}\" as the microphone.", best.input);
@@ -140,36 +132,12 @@ fn doctor() -> Result<(), String> {
 }
 
 fn print_install_hint() {
+    let (name, url) = install_hint();
+    println!("Install {name} (free): {url}");
     if cfg!(target_os = "macos") {
-        println!("Install BlackHole (free): brew install blackhole-2ch");
-        println!("  or download it from https://existential.audio/blackhole/");
-    } else if cfg!(target_os = "windows") {
-        println!("Install VB-CABLE (donationware): https://vb-audio.com/Cable/");
+        println!("  or: brew install blackhole-2ch");
     }
-    println!("Both require a reboot to finish installing. USB mode needs none of this.");
-}
-
-/// Pick a device among those that verifiably loop back. Purpose-built
-/// loopback drivers are preferred over ones bundled with conferencing apps,
-/// which can disappear when that app is uninstalled or updated.
-fn preferred(working: &[Candidate]) -> Option<&Candidate> {
-    working
-        .iter()
-        .find(|c| c.output.contains("BlackHole"))
-        .or_else(|| working.iter().find(|c| c.output.starts_with("CABLE Input")))
-        .or_else(|| working.iter().find(|c| c.output.contains("CABLE")))
-        .or_else(|| working.first())
-}
-
-fn auto_select(host: &cpal::Host) -> Result<Candidate, String> {
-    let working: Vec<Candidate> = cardmic_audio::loopback_candidates(host)
-        .into_iter()
-        .filter(|c| probe::loopback_rms(host, c).is_loopback())
-        .collect();
-    preferred(&working).cloned().ok_or_else(|| {
-        print_install_hint();
-        "no working loopback device found; run `cardmic doctor`".into()
-    })
+    println!("It may need a restart to finish installing. USB mode needs none of this.");
 }
 
 // ---------------------------------------------------------------- run
@@ -195,53 +163,6 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
     Ok(out)
 }
 
-/// Live receive state. Everything here is owned by the main thread; the only
-/// thing shared with the audio callback is the [`SampleQueue`].
-struct Stream {
-    sink: OutputSink,
-    queue: Arc<SampleQueue>,
-    resampler: Resampler,
-    scratch: Vec<f32>,
-}
-
-impl Stream {
-    fn open(host: &cpal::Host, name: &str) -> Result<Self, String> {
-        let sink = OutputSink::open(host, name)?;
-        let queue = sink.queue();
-        let resampler = Resampler::new(SAMPLE_RATE, sink.sample_rate());
-        Ok(Stream { sink, queue, resampler, scratch: Vec::with_capacity(4096) })
-    }
-
-    /// Resample 16 kHz samples to the device rate and queue them.
-    fn push(&mut self, samples: &[f32]) {
-        self.scratch.clear();
-        self.resampler.process(samples, &mut self.scratch);
-        self.queue.push(&self.scratch);
-    }
-
-    /// Conceal `packets` lost packets. The silence goes through the
-    /// resampler rather than straight into the queue, so the resampler's phase
-    /// stays continuous across the gap and there is no click at either edge.
-    fn conceal(&mut self, packets: u32) {
-        let zeros = vec![0.0f32; packets as usize * SAMPLES_PER_PACKET];
-        self.push(&zeros);
-    }
-
-    fn resync(&mut self) {
-        self.queue.clear();
-        self.resampler.reset();
-    }
-}
-
-#[derive(Default)]
-struct Stats {
-    packets: u64,
-    concealed: u64,
-    resyncs: u64,
-    dropped: u64,
-    auth_failures: u64,
-}
-
 fn pair(args: &[String]) -> Result<(), String> {
     let raw = args.join(" ");
     if raw.trim().is_empty() {
@@ -263,206 +184,84 @@ fn unpair() -> Result<(), String> {
     Ok(())
 }
 
-/// Varies between discovery packets; uniqueness is all it needs.
-fn discovery_nonce(counter: &mut u64) -> [u8; 8] {
-    *counter = counter.wrapping_add(1);
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    (t ^ counter.rotate_left(32)).to_le_bytes()
-}
-
 fn run(args: &[String]) -> Result<(), String> {
     let opts = parse_run_args(args)?;
     let host = cpal::default_host();
 
     // Which device to play into, and what the user should pick as the mic.
-    let (output, mic) = match opts.output {
-        Some(name) => {
-            let mic = cardmic_audio::loopback_candidates(&host)
-                .into_iter()
-                .find(|c| c.output == name)
-                .map(|c| c.input)
-                .unwrap_or_else(|| name.clone());
-            (name, mic)
-        }
+    let target: Candidate = match &opts.output {
+        Some(name) => output::named(&host, name),
         None => {
             println!("Looking for a loopback device...");
-            let c = auto_select(&host)?;
-            (c.output, c.input)
+            output::choose(&host, None).ok_or_else(|| {
+                print_install_hint();
+                "no working loopback device found; run `cardmic doctor`".to_string()
+            })?
         }
     };
+    let keys = pairing_store::load_keys();
+    let paired = keys.is_some();
 
-    let mut stream = Stream::open(&host, &output)?;
-    println!(
-        "Playing into \"{}\" ({} Hz, {} ch). In your app, choose \"{mic}\" as the microphone.",
-        stream.sink.name(),
-        stream.sink.sample_rate(),
-        stream.sink.channels()
-    );
-    let keys: Option<Keys> = pairing_store::load_keys();
-    match &keys {
-        Some(_) => println!("Paired: audio from a Cardputer with pairing on is encrypted."),
-        None => println!(
-            "Not paired: audio travels unencrypted. For privacy, turn on Settings > Pairing on the Cardputer and run `cardmic pair CODE`."
-        ),
-    }
-    let mut nonce_counter = 0u64;
-    let mut warned_plain = false;
-
-    let socket = net::bind().map_err(|e| match e.kind() {
-        std::io::ErrorKind::AddrInUse => "another `cardmic run` is already running on this computer \
+    let engine = Engine::start(
+        Options { output: target.clone(), keys, devices: opts.devices.clone() },
+        |event| match event {
+            Event::Connected { addr, encrypted } => {
+                let how = if encrypted { "encrypted" } else { "unencrypted" };
+                println!("\nConnected to Cardputer at {addr} ({how})");
+            }
+            Event::Lost { addr } => println!("\nCardputer at {addr} stopped sending; searching again..."),
+            Event::UnencryptedWhilePaired => println!(
+                "\nNote: this Cardputer is not requiring pairing, so audio is unencrypted. Turn on Settings > Pairing."
+            ),
+            Event::StillSearching { paired, auth_failures } => {
+                if auth_failures > 0 {
+                    println!("Still searching. A Cardputer is sending audio this computer cannot decrypt: the pairing code changed. Run `cardmic pair` with the new code.");
+                } else if paired {
+                    println!("Still searching. Is Cardmic open and on the same Wi-Fi? If the pairing code changed, run `cardmic pair` again.");
+                } else {
+                    println!("Still searching. Is Cardmic open and on the same Wi-Fi? If Settings > Pairing is on, run `cardmic pair CODE` first.");
+                }
+            }
+            Event::OutputReopened { sample_rate, channels } => {
+                eprintln!("\noutput stream reopened at {sample_rate} Hz, {channels} ch")
+            }
+            Event::OutputReopenFailed(e) => eprintln!("\nreopening the output failed, will retry: {e}"),
+            Event::ReceiveError(e) => eprintln!("receive error: {e}"),
+        },
+    )
+    .map_err(|e| match e {
+        cardmic_engine::StartError::PortInUse => {
+            "another `cardmic run` or the Cardmic menu bar app is already receiving on this computer \
              (UDP port 41234 is in use). Close it, or keep using that one."
-            .to_string(),
-        _ => format!("cannot bind UDP port 41234: {e}"),
+                .to_string()
+        }
+        other => other.to_string(),
     })?;
-    let targets = net::discovery_targets(&opts.devices);
-    println!("Searching for a Cardputer ({} discovery target(s))...", targets.len());
 
-    let mut sequencer = Sequencer::new();
-    let mut stats = Stats::default();
-    let mut device: Option<SocketAddr> = None;
-    let mut last_packet: Option<Instant> = None;
-    let mut last_discovery: Option<Instant> = None;
-    let mut last_status = Instant::now();
-    let search_started = Instant::now();
-    let mut hinted = false;
-    let mut buf = [0u8; 2048];
+    let st = engine.status();
+    println!(
+        "Playing into \"{}\" ({} Hz, {} ch). In your app, choose \"{}\" as the microphone.",
+        st.output, st.sample_rate, st.channels, st.mic
+    );
+    if paired {
+        println!("Paired: audio from a Cardputer with pairing on is encrypted.");
+    } else {
+        println!(
+            "Not paired: audio travels unencrypted. For privacy, turn on Settings > Pairing on the Cardputer and run `cardmic pair CODE`."
+        );
+    }
+    println!("Searching for a Cardputer...");
 
     loop {
-        // Keepalive: the device drops us 2.5 s after the last discovery.
-        // Sent from the receive socket -- see net.rs for why that matters.
-        if last_discovery.is_none_or(|t| t.elapsed() >= DISCOVERY_INTERVAL) {
-            let v2 = keys.as_ref().map(|k| k.discovery(discovery_nonce(&mut nonce_counter)));
-            let message: &[u8] = match &v2 {
-                Some(d) => d,
-                None => DISCOVERY_MESSAGE,
-            };
-            for target in &targets {
-                let _ = socket.send_to(message, target);
-            }
-            last_discovery = Some(Instant::now());
-        }
-
-        // Another app changed the device's sample rate, or it went away.
-        if stream.sink.needs_rebuild() {
-            eprintln!("\noutput stream invalidated; reopening \"{output}\"");
-            std::thread::sleep(Duration::from_millis(200));
-            match Stream::open(&host, &output) {
-                Ok(s) => {
-                    stream = s;
-                    sequencer.reset();
-                    eprintln!("reopened at {} Hz, {} ch", stream.sink.sample_rate(), stream.sink.channels());
-                }
-                Err(e) => eprintln!("reopen failed, will retry: {e}"),
-            }
-        }
-
-        match socket.recv_from(&mut buf) {
-            Ok((n, from)) => {
-                let data = &buf[..n];
-                // Our own broadcasts come back to us; ignore them.
-                if data == DISCOVERY_MESSAGE || data.starts_with(cardmic_core::pairing::DISCOVERY_V2_PREFIX) {
-                    continue;
-                }
-                let packet = match Packet::decode(data) {
-                    Ok(p) => {
-                        if keys.is_some() && !warned_plain {
-                            warned_plain = true;
-                            println!(
-                                "\nNote: this Cardputer is not requiring pairing, so audio is unencrypted. Turn on Settings > Pairing."
-                            );
-                        }
-                        p
-                    }
-                    Err(cardmic_core::protocol::DecodeError::Encrypted) => match keys.as_ref().map(|k| k.open(data)) {
-                        Some(Ok(p)) => p,
-                        Some(Err(OpenError::Authentication)) | None => {
-                            stats.auth_failures += 1;
-                            continue;
-                        }
-                        Some(Err(OpenError::NotCpm2)) => continue,
-                    },
-                    Err(_) => continue, // not ours: a LAN carries plenty of other traffic
-                };
-
-                if device != Some(from) {
-                    let how = match packet.version {
-                        cardmic_core::protocol::Version::Cpm2 => "encrypted",
-                        cardmic_core::protocol::Version::Cpm1 => "unencrypted",
-                    };
-                    println!("\nConnected to Cardputer at {from} ({how})");
-                    device = Some(from);
-                    sequencer.reset();
-                    stream.resync();
-                }
-                last_packet = Some(Instant::now());
-
-                let samples = i16_to_f32(&packet.samples);
-                match sequencer.accept(packet.sequence) {
-                    Action::Play => stream.push(&samples),
-                    Action::ConcealThenPlay { silent_packets } => {
-                        stats.concealed += silent_packets as u64;
-                        stream.conceal(silent_packets);
-                        stream.push(&samples);
-                    }
-                    Action::ResyncThenPlay => {
-                        stats.resyncs += 1;
-                        stream.resync();
-                        stream.push(&samples);
-                    }
-                    Action::Drop => {
-                        stats.dropped += 1;
-                        continue;
-                    }
-                }
-                stats.packets += 1;
-            }
-            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
-            Err(e) => eprintln!("receive error: {e}"),
-        }
-
-        if let (Some(addr), Some(t)) = (device, last_packet) {
-            if t.elapsed() > RECEIVER_TIMEOUT {
-                println!("\nCardputer at {addr} stopped sending; searching again...");
-                device = None;
-                last_packet = None;
-                sequencer.reset();
-                stream.resync();
-            }
-        }
-
-        if device.is_none() && !hinted && search_started.elapsed() > Duration::from_secs(6) {
-            hinted = true;
-            if keys.is_some() {
-                println!("Still searching. Is Cardmic open and on the same Wi-Fi? If the pairing code changed, run `cardmic pair` again.");
-            } else {
-                println!("Still searching. Is Cardmic open and on the same Wi-Fi? If Settings > Pairing is on, run `cardmic pair CODE` first.");
-            }
-        }
-
-        if last_status.elapsed() >= Duration::from_secs(1) {
-            last_status = Instant::now();
-            if device.is_some() {
-                let rate = stream.sink.sample_rate() as f64;
-                let buffered_ms = stream.queue.buffered() as f64 / rate * 1000.0;
-                let auth = if stats.auth_failures > 0 {
-                    format!(" · auth failures {}", stats.auth_failures)
-                } else {
-                    String::new()
-                };
-                print!(
-                    "\r  {} pkts · buffer {:>4.0}/{:.0} ms · concealed {} · resyncs {} · underruns {}{auth}   ",
-                    stats.packets,
-                    buffered_ms,
-                    stream.queue.target() as f64 / rate * 1000.0,
-                    stats.concealed,
-                    stats.resyncs,
-                    stream.queue.underruns()
-                );
-                let _ = io::stdout().flush();
-            }
+        std::thread::sleep(Duration::from_secs(1));
+        let st = engine.status();
+        if matches!(st.link, Link::Connected { .. }) {
+            let auth = if st.auth_failures > 0 { format!(" · auth failures {}", st.auth_failures) } else { String::new() };
+            print!(
+                "\r  {} pkts · buffer {:>4.0}/{:.0} ms · concealed {} · resyncs {} · underruns {}{auth}   ",
+                st.packets, st.buffered_ms, st.target_ms, st.concealed, st.resyncs, st.underruns
+            );
+            let _ = io::stdout().flush();
         }
     }
 }

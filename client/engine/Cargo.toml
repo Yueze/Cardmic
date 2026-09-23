@@ -1,0 +1,12 @@
+[package]
+name = "cardmic-engine"
+description = "Receives the Cardputer's stream and plays it into a loopback device; shared by the CLI and the menu bar app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cardmic-core.workspace = true
+cardmic-audio = { path = "../audio" }
+cpal.workspace = true
+if-addrs = "0.15"

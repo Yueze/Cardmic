@@ -28,9 +28,9 @@ use two ways:
 
 - **USB.** A standard USB Audio Class microphone. No driver, no client, no
   setup. It shows up as **Cardmic Microphone**.
-- **Wi-Fi.** A 16 kHz stream to a small open-source desktop client, which plays
-  it into a virtual audio device. Every app on the computer can then pick it
-  as a microphone.
+- **Wi-Fi.** A 16 kHz stream to the Cardmic app on your computer, which lives in
+  the menu bar (macOS) or the notification area (Windows) and turns the stream
+  into a microphone every app can pick.
 
 ## Features
 
@@ -85,27 +85,26 @@ esptool: [docs/flashing.md](docs/flashing.md).
 into your computer, and choose **Cardmic Microphone** as the input.
 
 **3. Use it over Wi-Fi.** In Cardmic, press `S` > **Wi-Fi** and join your
-network. On the computer, install a loopback audio device and run the client:
-
-```bash
-cardmic doctor   # finds a working loopback device
-cardmic run      # receives the stream and plays it into that device
-```
-
-Then choose the microphone the client names (**BlackHole 2ch** on a Mac,
-**CABLE Output** on Windows) in your app. For privacy, turn on
-Settings > Pairing and run `cardmic pair CODE` once. Details:
+network. On the computer, install the Cardmic app from the
+[latest release](https://github.com/Yueze/Cardmic/releases/latest)
+(`Cardmic-macOS.dmg` or `Cardmic-Windows-Setup.exe`) and open it. Its icon,
+three dots, finds the Cardputer by itself; its menu tells you which
+microphone to choose in your app, and pairs the two for privacy. Details:
 [macOS](docs/macos.md) · [Windows](docs/windows.md).
+
+Prefer a terminal? The same engine ships as the `cardmic` command
+(`cardmic run`, `cardmic pair CODE`, `cardmic doctor`).
 
 ## What your computer needs
 
 | | macOS | Windows |
 |---|---|---|
 | **USB mode** | Nothing | Nothing |
-| **Wi-Fi mode** | `cardmic` client + [BlackHole 2ch](https://existential.audio/blackhole/) | `cardmic` client + [VB-CABLE](https://vb-audio.com/Cable/) |
+| **Wi-Fi mode** | Cardmic app + [BlackHole 2ch](https://existential.audio/blackhole/) | Cardmic app + [VB-CABLE](https://vb-audio.com/Cable/) |
 
 A virtual device you already have (from Zoom, Teams, Loopback and similar) may
-work instead of BlackHole or VB-CABLE; `cardmic doctor` tests each one.
+work instead of BlackHole or VB-CABLE; the app tests them and picks one that
+works.
 
 ## Controls
 
@@ -140,8 +139,10 @@ The firmware is M5Stack's factory firmware
 ([M5Cardputer-UserDemo](https://github.com/m5stack/M5Cardputer-UserDemo), ESP-IDF
 5.4) with Cardmic added as an app in
 [`firmware/main/apps/app_cardmic`](firmware/main/apps/app_cardmic). The desktop
-client is a single Rust binary built on [cpal](https://github.com/RustAudio/cpal),
-in [`client/`](client).
+client, in [`client/`](client), is Rust on [cpal](https://github.com/RustAudio/cpal):
+one receiving engine behind both the menu bar app
+([tray-icon](https://github.com/tauri-apps/tray-icon)) and the `cardmic`
+command.
 
 ## Build from source
 
@@ -154,13 +155,17 @@ idf.py build
 ./tools/package.sh            # dist/cardmic-ota.bin and dist/cardmic-<ver>-full.bin
 ```
 
-**Client** (Rust 1.85+):
+**Client** (Rust 1.90+):
 
 ```bash
 cd client
 cargo test --workspace
-cargo build --release         # target/release/cardmic
+cargo build --release         # target/release/cardmic and cardmic-app
+tray/macos/bundle.sh          # macOS: target/macos/Cardmic.app and Cardmic.dmg
 ```
+
+On Windows, `tray/windows/cardmic.iss` builds the installer with
+[Inno Setup](https://jrsoftware.org/isinfo.php).
 
 No hardware? `cardmic-synth` stands in for a device and streams a test tone,
 so the client can be developed end to end:
@@ -176,13 +181,15 @@ Cardmic is young. What works today, and what is next:
 
 - [x] USB microphone, verified on macOS
 - [x] Wireless streaming with the desktop client, verified on macOS and Windows
+- [x] Menu bar app (macOS) and tray app (Windows); verified on macOS
 - [x] On-device Wi-Fi setup, settings, over-the-air updates
 - [x] Pairing and encryption for wireless mode (off by default; turn it on in Settings > Pairing)
 - [x] Hold-to-talk key for dictation apps (USB keyboard + microphone)
 - [x] Browser installer
 - [ ] A registered USB vendor/product ID (the firmware uses a development ID for now)
 - [ ] An M5Burner listing
-- [ ] Signed and notarized desktop builds
+- [ ] Signed and notarized desktop builds (until then, macOS asks you to confirm the first launch)
+- [ ] Cardmic's own virtual microphone, so no BlackHole or VB-CABLE is needed
 
 Issues and pull requests are welcome.
 
