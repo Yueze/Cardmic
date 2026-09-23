@@ -27,7 +27,7 @@
     <key>NSLocalNetworkUsageDescription</key>
     <string>Cardmic finds your Cardputer on this network and receives its microphone audio.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Cardmic listens to a virtual audio device for a moment to check that it passes sound through. It never records your other microphones.</string>
+    <string>Cardmic listens to your Cardputer to show it live, and to a virtual audio device for a moment to check that it passes sound through. It never records your other microphones.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 The Cardmic Authors. Apache License 2.0.</string>
 </dict>
