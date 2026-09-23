@@ -12,8 +12,8 @@ fn main() {
             .set_manifest_file("windows/Cardmic.manifest")
             .set("ProductName", "Cardmic")
             .set("FileDescription", "Cardmic")
-            .set("CompanyName", "Cardmic contributors")
-            .set("LegalCopyright", "MIT License");
+            .set("CompanyName", "The Cardmic Authors")
+            .set("LegalCopyright", "Copyright © 2026 The Cardmic Authors. Apache License 2.0.");
         if let Err(e) = res.compile() {
             panic!("embedding Windows resources failed: {e}");
         }

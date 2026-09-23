@@ -1,8 +1,7 @@
 Cardmic
 Copyright 2026 The Cardmic Authors
 
-Licensed under the Apache License, Version 2.0 (see LICENSE). Releases up to
-0.6.0-beta.2 were published under the MIT License.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 # Third-party notices
 

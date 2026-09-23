@@ -29,6 +29,6 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>Cardmic listens to a virtual audio device for a moment to check that it passes sound through. It never records your other microphones.</string>
     <key>NSHumanReadableCopyright</key>
-    <string>MIT License. github.com/Yueze/Cardmic</string>
+    <string>Copyright © 2026 The Cardmic Authors. Apache License 2.0.</string>
 </dict>
 </plist>
