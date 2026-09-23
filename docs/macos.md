@@ -31,11 +31,10 @@ The app is not notarized by Apple yet, so the first time macOS says it cannot
 check it. Open **System Settings > Privacy & Security**, scroll down and click
 **Open Anyway** next to Cardmic. After that it opens normally.
 
-Cardmic has no window and no Dock icon. It lives in the menu bar as three
-dots: rings while it looks for the Cardputer, filled when audio is flowing.
-If your menu bar is full, macOS may hide it behind other icons or the camera
-notch; open Cardmic again from Applications or Spotlight at any time and its
-menu appears where you are.
+Cardmic has no window. Its icon, three dots pointing right, sits in the Dock
+and in the menu bar: filled while audio is flowing, rings while it looks for
+the Cardputer. Click either one for its menu. A full menu bar or the camera
+notch can hide the menu bar icon; the Dock icon always works.
 
 The first time, macOS asks to let Cardmic use the microphone. Allow it:
 Cardmic records from your virtual audio devices for a moment, once, to find

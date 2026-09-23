@@ -28,9 +28,9 @@ use two ways:
 
 - **USB.** A standard USB Audio Class microphone. No driver, no client, no
   setup. It shows up as **Cardmic Microphone**.
-- **Wi-Fi.** A 16 kHz stream to the Cardmic app on your computer, which lives in
-  the menu bar (macOS) or the notification area (Windows) and turns the stream
-  into a microphone every app can pick.
+- **Wi-Fi.** A 16 kHz stream to the Cardmic app on your computer (Dock and menu
+  bar on macOS, notification area on Windows), which turns the stream into a
+  microphone every app can pick.
 
 ## Features
 
@@ -87,9 +87,9 @@ into your computer, and choose **Cardmic Microphone** as the input.
 **3. Use it over Wi-Fi.** In Cardmic, press `S` > **Wi-Fi** and join your
 network. On the computer, install the Cardmic app from the
 [latest release](https://github.com/Yueze/Cardmic/releases/latest)
-(`Cardmic-macOS.dmg` or `Cardmic-Windows-Setup.exe`) and open it. Its icon,
-three dots, finds the Cardputer by itself; its menu tells you which
-microphone to choose in your app, and pairs the two for privacy. Details:
+(`Cardmic-macOS.dmg` or `Cardmic-Windows-Setup.exe`) and open it. It finds
+the Cardputer by itself. Click its icon, three dots, for a menu that tells
+you which microphone to choose in your app and pairs the two for privacy. Details:
 [macOS](docs/macos.md) · [Windows](docs/windows.md).
 
 Prefer a terminal? The same engine ships as the `cardmic` command

@@ -154,17 +154,18 @@ mod imp {
         window.occlusionState().contains(NSWindowOcclusionState::Visible)
     }
 
-    /// Open the menu: from the icon if macOS draws it, else at the pointer.
+    /// Open the menu at the pointer (after a click on the Dock icon), or from
+    /// the menu bar icon when `at_pointer` is false and macOS draws it.
     ///
     /// Deferred to the main queue. A menu runs its own event loop, and
     /// starting one from inside tao's event handler deadlocks: tao locks its
     /// handler again from the nested loop.
-    pub fn show_menu(tray: &tray_icon::TrayIcon, menu: &tray_icon::menu::Menu) {
+    pub fn show_menu(tray: &tray_icon::TrayIcon, menu: &tray_icon::menu::Menu, at_pointer: bool) {
         let Some(mtm) = MainThreadMarker::new() else { return };
         let ptr = menu.ns_menu() as *mut NSMenu;
         // SAFETY: a live NSMenu owned by `menu`; retained for the deferred call.
         let Some(ns_menu) = (unsafe { Retained::retain(ptr) }) else { return };
-        let item = if icon_visible(tray) { tray.ns_status_item() } else { None };
+        let item = if !at_pointer && icon_visible(tray) { tray.ns_status_item() } else { None };
         let bound = MainThreadBound::new((ns_menu, item), mtm);
         DispatchQueue::main().exec_async(move || {
             let Some(mtm) = MainThreadMarker::new() else { return };

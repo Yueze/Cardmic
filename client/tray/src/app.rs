@@ -173,14 +173,10 @@ pub fn run() {
         }
     };
 
-    #[allow(unused_mut)]
-    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    #[cfg(target_os = "macos")]
-    {
-        use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
-        event_loop.set_activation_policy(ActivationPolicy::Accessory);
-        event_loop.set_dock_visibility(false);
-    }
+    // A regular app on macOS: a Dock icon (three dots) that opens the menu
+    // when clicked, besides the menu bar icon, which a full menu bar or the
+    // camera notch can hide.
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some({
@@ -202,10 +198,11 @@ pub fn run() {
                     app = Some(App::new(proxy.clone()));
                 }
             }
-            // Opened again from Finder, Launchpad or Spotlight while running.
+            // The Dock icon was clicked, or Cardmic opened again from Finder,
+            // Launchpad or Spotlight: show the menu where the user is.
             Event::Reopen { .. } => {
                 if let Some(a) = app.as_mut() {
-                    a.show_menu();
+                    a.show_menu(true);
                 }
             }
             Event::UserEvent(e) => {
@@ -226,6 +223,38 @@ pub fn run() {
             _ => {}
         }
     });
+}
+
+/// The menu bar a regular macOS app shows while it is in front.
+#[cfg(target_os = "macos")]
+fn app_menu_bar() {
+    use tray_icon::menu::AboutMetadata;
+    let bar = Menu::new();
+    let about = AboutMetadata {
+        name: Some("Cardmic".into()),
+        version: Some(VERSION.into()),
+        website: Some("https://github.com/Yueze/Cardmic".into()),
+        license: Some("MIT".into()),
+        ..Default::default()
+    };
+    let app = Submenu::with_items(
+        "Cardmic",
+        true,
+        &[
+            &PredefinedMenuItem::about(None, Some(about)),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::hide(None),
+            &PredefinedMenuItem::hide_others(None),
+            &PredefinedMenuItem::show_all(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::quit(None),
+        ],
+    );
+    if let Ok(app) = app {
+        let _ = bar.append(&app);
+    }
+    bar.init_for_nsapp();
+    std::mem::forget(bar); // lives as long as the app
 }
 
 /// A second copy of the app connects here to ask this one to show its menu.
@@ -257,6 +286,9 @@ impl App {
             settings.login_item_offered = true;
             settings.save();
         }
+
+        #[cfg(target_os = "macos")]
+        app_menu_bar();
 
         let items = Items::new();
         let menu = Menu::new();
@@ -415,7 +447,7 @@ impl App {
                 }
             }
             UserEvent::Engine => {}
-            UserEvent::Show => self.show_menu(),
+            UserEvent::Show => self.show_menu(true),
             UserEvent::MicAnswered(granted) => {
                 log(&format!("microphone access answered: {granted}"));
                 if matches!(self.wifi, Wifi::AskingMic) {
@@ -544,19 +576,7 @@ impl App {
             // Show where the app lives, once.
             self.first_launch = false;
             #[cfg(target_os = "macos")]
-            {
-                if platform::icon_visible(&self.tray) {
-                    self.show_menu();
-                } else {
-                    std::thread::spawn(|| {
-                        platform::alert(
-                            "Cardmic is running",
-                            "Your menu bar is too full to show Cardmic's icon (three dots), so macOS hides it. \
-                             Open Cardmic again from Applications or Spotlight at any time to show its menu.",
-                        )
-                    });
-                }
-            }
+            self.show_menu(false);
             #[cfg(target_os = "windows")]
             std::thread::spawn(|| {
                 platform::alert(
@@ -572,12 +592,15 @@ impl App {
     // ------------------------------------------------------------ view
 
     /// Open the menu: from the icon if it can be seen, else at the pointer.
-    fn show_menu(&mut self) {
+    fn show_menu(&mut self, at_pointer: bool) {
         self.refresh();
         #[cfg(target_os = "macos")]
-        platform::show_menu(&self.tray, &self.menu);
+        platform::show_menu(&self.tray, &self.menu, at_pointer);
         #[cfg(target_os = "windows")]
-        self.tray.show_menu();
+        {
+            let _ = at_pointer; // the tray menu always opens at the pointer
+            self.tray.show_menu();
+        }
     }
 
     fn refresh(&mut self) {

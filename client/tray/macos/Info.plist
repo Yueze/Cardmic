@@ -22,9 +22,6 @@
     <string>13.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
-    <!-- Menu bar only: no Dock icon, no app menu. -->
-    <key>LSUIElement</key>
-    <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSLocalNetworkUsageDescription</key>
