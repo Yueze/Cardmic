@@ -434,7 +434,10 @@
     const usb = $("usbLight"), wl = $("wifiLight");
     put(usb, "class", "light legend" + (s.usb ? " on" : ""));
     const seeking = s.phase === "searching" || s.phase === "starting";
-    put(wl, "class", "light legend" + (!s.wifi ? "" : live ? " on" : seeking ? "" : " warn"));
+    // The Wi-Fi light follows Wi-Fi itself, also while the window shows USB.
+    const wifiPhase = s.wifi_phase || s.phase;
+    const wifiSeeking = wifiPhase === "searching" || wifiPhase === "starting";
+    put(wl, "class", "light legend" + (!s.wifi ? "" : wifiPhase === "connected" ? " on" : wifiSeeking ? "" : " warn"));
 
     const word = {
       connected: ["LIVE", COL.accent], searching: ["SEARCH", COL.dim], starting: ["WAIT", COL.dim],
