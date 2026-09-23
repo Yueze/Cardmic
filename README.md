@@ -129,19 +129,19 @@ dictation app's shortcut. See [Hold to talk](docs/talk-key.md).
 
 ## Specifications
 
-| | |
-|---|---|
-| **Audio** | 16 kHz, mono, 16-bit PCM |
-| **Signal path** | Cardputer ADV: ES8311 codec at +30 dB PGA. Original Cardputer: PDM microphone. Then DC removal, 100 Hz high-pass (4th order), three gain steps. |
-| **USB** | USB Audio Class 2.0, plus a HID keyboard when a talk key is set. Verified on macOS; Windows 10+ and Linux include the class driver. |
-| **Wi-Fi** | 2.4 GHz, UDP on the local network, 20 ms packets, automatic discovery |
-| **Buffering** | 60 ms on a clean network. Grows when Wi-Fi stalls (up to 400 ms), shrinks back once it is calm. |
-| **Loss handling** | Packets reordered; gaps of up to 100 ms concealed |
-| **Security** | Optional pairing: a code shown on the device, handed over USB or typed once. Paired audio is encrypted with AES-128-GCM; other computers are refused. |
-| **Display** | 100 Hz to 8 kHz spectrogram, a column every 10 ms; 16-segment meter with peak hold |
-| **Updates** | Device: over Wi-Fi from GitHub Releases, with automatic rollback. App: downloads in the background, installs when idle. |
-| **Devices** | Cardputer ADV; original Cardputer (v1.1) from 0.6.0 |
-| **Computers** | macOS 13 or later, Apple silicon and Intel; Windows 10 or 11, x64 |
+<table>
+  <tr><td><b>Audio</b></td><td>16 kHz, mono, 16-bit PCM</td></tr>
+  <tr><td><b>Signal&nbsp;path</b></td><td>Cardputer ADV: ES8311 codec at +30 dB PGA. Original Cardputer: PDM microphone. Then DC removal, 100 Hz high-pass (4th order), three gain steps.</td></tr>
+  <tr><td><b>USB</b></td><td>USB Audio Class 2.0, plus a HID keyboard when a talk key is set. Verified on macOS; Windows 10+ and Linux include the class driver.</td></tr>
+  <tr><td><b>Wi-Fi</b></td><td>2.4 GHz, UDP on the local network, 20 ms packets, automatic discovery</td></tr>
+  <tr><td><b>Buffering</b></td><td>60 ms on a clean network. Grows when Wi-Fi stalls (up to 400 ms), shrinks back once it is calm.</td></tr>
+  <tr><td><b>Loss&nbsp;handling</b></td><td>Packets reordered; gaps of up to 100 ms concealed</td></tr>
+  <tr><td><b>Security</b></td><td>Optional pairing: a code shown on the device, handed over USB or typed once. Paired audio is encrypted with AES-128-GCM; other computers are refused.</td></tr>
+  <tr><td><b>Display</b></td><td>100 Hz to 8 kHz spectrogram, a column every 10 ms; 16-segment meter with peak hold</td></tr>
+  <tr><td><b>Updates</b></td><td>Device: over Wi-Fi from GitHub Releases, with automatic rollback. App: downloads in the background, installs when idle.</td></tr>
+  <tr><td><b>Devices</b></td><td>Cardputer ADV; original Cardputer (v1.1) from 0.6.0</td></tr>
+  <tr><td><b>Computers</b></td><td>macOS 13 or later, Apple silicon and Intel; Windows 10 or 11, x64</td></tr>
+</table>
 
 <details>
 <summary><b>Which Cardputer?</b></summary>

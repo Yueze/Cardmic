@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Pairing page, reworded.** It names both ways to pair as the app does:
+  plug in once, or type the code in Cardmic > Pairing > Enter code.
+- **No clipped text on the device.** Every line of small text fits the
+  screen; the pairing status and the update hint used to lose their last
+  letters.
+- **App: the Wi-Fi light is grey while it searches**, also when USB is what
+  the window shows (it was amber, which reads as trouble).
+- **App: the microphone prompt says what Cardmic listens to**, including the
+  Cardputer over USB for the live view. The About box and Windows file
+  details no longer show a license or a link.
+
 ## 0.6.0 — 2026-09-23
 
 - **Pairing and encryption.** Settings > Pairing shows a 12-character code;
