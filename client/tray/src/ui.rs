@@ -9,6 +9,8 @@ use tao::window::{Window, WindowBuilder};
 use wry::{WebView, WebViewBuilder};
 
 const PAGE: &str = include_str!("../ui/index.html");
+/// The device's bitmap fonts (see ui/make_fonts.py), loaded before the page.
+const FONTS: &str = include_str!("../ui/fonts.js");
 
 pub struct Ui {
     pub window: Window,
@@ -29,6 +31,8 @@ pub enum Command {
     Retry,
     Copy(String),
     Drag,
+    /// A script error on the page, for the log.
+    Log(String),
 }
 
 impl Command {
@@ -45,6 +49,7 @@ impl Command {
             "retry" => Command::Retry,
             "copy" => Command::Copy(arg.to_string()),
             "drag" => Command::Drag,
+            "log" => Command::Log(arg.to_string()),
             _ => return None,
         })
     }
@@ -59,7 +64,7 @@ impl Ui {
         #[allow(unused_mut)]
         let mut builder = WindowBuilder::new()
             .with_title("Cardmic")
-            .with_inner_size(LogicalSize::new(360.0, 690.0))
+            .with_inner_size(LogicalSize::new(520.0, 520.0))
             .with_resizable(false)
             .with_visible(false);
         #[cfg(target_os = "macos")]
@@ -70,6 +75,8 @@ impl Ui {
         }
         let window = builder.build(target).map_err(|e| e.to_string())?;
         let webview = WebViewBuilder::new()
+            .with_initialization_script(FONTS)
+            .with_background_color((0, 0, 0, 255))
             .with_html(PAGE)
             .with_accept_first_mouse(true)
             .with_ipc_handler(move |req: wry::http::Request<String>| {

@@ -5,426 +5,493 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cardmic</title>
 <style>
-  :root {
-    color-scheme: light dark;
-    --bg: #f3f3f5;
-    --card: #ffffff;
-    --text: #151517;
-    --sub: #6c6c72;
-    --faint: #a1a1a6;
-    --line: rgba(0, 0, 0, 0.07);
-    --accent: #4f9400;
-    --live: #86d600;
-    --live-soft: rgba(110, 190, 0, 0.14);
-    --amber: #c77c00;
-    --amber-soft: rgba(230, 150, 0, 0.13);
-    --red: #d8342b;
-    --field: #f1f1f3;
-    --knob: #ffffff;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #141415;
-      --card: #1e1e20;
-      --text: #f4f4f5;
-      --sub: #909096;
-      --faint: #5c5c62;
-      --line: rgba(255, 255, 255, 0.07);
-      --accent: #99ff00;
-      --live: #99ff00;
-      --live-soft: rgba(153, 255, 0, 0.12);
-      --amber: #ffb020;
-      --amber-soft: rgba(255, 176, 32, 0.12);
-      --red: #ff6159;
-      --field: #2a2a2d;
-      --knob: #f4f4f5;
-      --shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-    }
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -webkit-user-select: none;
-    user-select: none;
-    cursor: default;
-    overflow: hidden;
-  }
-  .app { display: flex; flex-direction: column; height: 100%; }
-
-  /* Header doubles as the title bar; on macOS the traffic lights sit at its left. */
-  header {
-    display: flex; align-items: center; gap: 9px;
-    height: 52px; padding: 0 16px 0 16px; flex: none;
-  }
-  .mac header { padding-left: 84px; }
-  .brand { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-  .brand svg { width: 18px; height: 18px; flex: none; }
-  .brand b { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
-  .brand span { color: var(--faint); font-size: 11.5px; }
-
-  main { flex: 1; overflow-y: auto; padding: 0 14px 12px; }
-  main::-webkit-scrollbar { width: 0; }
-
-  .card {
-    background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
-    margin-bottom: 14px;
-  }
-
-  /* Hero: the one thing that matters. */
-  .hero { padding: 16px 16px 14px; }
-  .state { display: flex; align-items: center; gap: 10px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--faint); position: relative; }
-  .dot.live { background: var(--live); box-shadow: 0 0 0 4px var(--live-soft); }
-  .dot.warn { background: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
-  .dot.seek { background: transparent; border: 2px solid var(--sub); }
-  .dot.seek::after {
-    content: ""; position: absolute; inset: -6px; border-radius: 50%;
-    border: 1.5px solid var(--sub); opacity: 0; animation: ping 1.8s ease-out infinite;
-  }
-  @keyframes ping { 0% { transform: scale(0.5); opacity: 0.6; } 100% { transform: scale(1.3); opacity: 0; } }
-  .title { font-size: 17px; font-weight: 650; letter-spacing: -0.015em; }
-  .detail { color: var(--sub); margin: 6px 0 0 20px; }
-  .badges { display: flex; gap: 6px; margin: 9px 0 0 20px; }
-  .badge {
-    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
-    background: var(--live-soft); color: var(--accent);
-  }
-  .badge.warn { background: var(--amber-soft); color: var(--amber); }
-  .meter { display: flex; align-items: flex-end; gap: 3px; height: 34px; margin: 14px 2px 0; }
-  .meter i {
-    flex: 1; border-radius: 2px; background: var(--live); min-height: 2px;
-    opacity: 0.9; transition: height 90ms linear;
-  }
-  .meter.idle i { background: var(--faint); opacity: 0.35; }
-  .action { margin: 12px 0 0 20px; }
-
-  /* Sections */
-  h2 {
-    font-size: 11px; font-weight: 600; color: var(--sub); text-transform: uppercase;
-    letter-spacing: 0.04em; margin: 0 4px 6px;
-  }
-  .row {
-    display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 14px;
-  }
-  .row + .row { border-top: 1px solid var(--line); }
-  .row .k { flex: 1; min-width: 0; }
-  .row .v { color: var(--sub); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
-  .row .v.on { color: var(--text); }
-  .sm { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px; background: var(--faint); vertical-align: 1px; }
-  .sm.live { background: var(--live); }
-
-  .mic { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .note { color: var(--sub); font-size: 11.5px; padding: 0 14px 12px; margin-top: -2px; }
-
-  button {
-    font: inherit; font-size: 12px; font-weight: 550; color: var(--text);
-    background: var(--field); border: 0; border-radius: 7px; padding: 5px 11px;
-    cursor: pointer;
-  }
-  button:active { filter: brightness(0.92); }
-  button.primary { background: var(--accent); color: #0b0b0b; }
-  @media (prefers-color-scheme: light) { button.primary { color: #fff; } }
-  button.quiet { background: transparent; color: var(--sub); padding: 5px 6px; }
-
-  select {
-    font: inherit; font-size: 12.5px; color: var(--text); background: var(--field);
-    border: 0; border-radius: 7px; padding: 4px 26px 4px 9px; max-width: 190px;
-    -webkit-appearance: none; appearance: none; cursor: pointer;
-    background-image: linear-gradient(45deg, transparent 50%, var(--sub) 50%), linear-gradient(135deg, var(--sub) 50%, transparent 50%);
-    background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%;
-    background-size: 4px 4px, 4px 4px; background-repeat: no-repeat;
-    text-overflow: ellipsis;
-  }
-
-  input.code {
-    flex: 1; min-width: 0; font: 600 13px ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
-    letter-spacing: 0.06em; color: var(--text); background: var(--field); border: 0; border-radius: 7px;
-    padding: 6px 9px; outline: none; text-transform: uppercase; -webkit-user-select: text; user-select: text;
-  }
-  input.code::placeholder { color: var(--faint); letter-spacing: 0.06em; }
-  input.code:focus { box-shadow: 0 0 0 2px var(--live-soft), 0 0 0 1px var(--accent) inset; }
-  .err { color: var(--red); font-size: 11.5px; padding: 0 14px 10px; }
-
-  /* Switch */
-  .switch { position: relative; width: 32px; height: 19px; flex: none; }
-  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
-  .switch span {
-    position: absolute; inset: 0; border-radius: 99px; background: var(--field);
-    box-shadow: inset 0 0 0 1px var(--line); transition: background 0.15s; cursor: pointer;
-  }
-  .switch span::before {
-    content: ""; position: absolute; width: 15px; height: 15px; left: 2px; top: 2px; border-radius: 50%;
-    background: var(--knob); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 0.15s;
-  }
-  .switch input:checked + span { background: var(--live); box-shadow: none; }
-  .switch input:checked + span::before { transform: translateX(13px); background: #fff; }
-  header .switch-label { color: var(--sub); font-size: 12px; margin-right: 6px; }
-
-  footer {
-    flex: none; display: flex; align-items: center; gap: 8px;
-    padding: 9px 16px 11px; border-top: 1px solid var(--line); color: var(--sub); font-size: 12px;
-  }
-  footer .grow { flex: 1; }
-  footer a { color: var(--sub); text-decoration: none; cursor: pointer; }
-  footer a:hover { color: var(--text); }
-  .hidden { display: none !important; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { cursor: default; -webkit-user-select: none; user-select: none; }
+  canvas { display: block; width: 520px; height: 520px; image-rendering: pixelated; }
 </style>
+<!-- In the app, the fonts come in as an initialization script instead. -->
+<script src="fonts.js"></script>
 </head>
 <body>
-<div class="app">
-  <header id="drag">
-    <div class="brand">
-      <svg viewBox="0 0 18 18" aria-hidden="true">
-        <circle cx="4.85" cy="4.6" r="2.3" fill="var(--live)"/>
-        <circle cx="4.85" cy="13.4" r="2.3" fill="var(--live)"/>
-        <circle cx="12.45" cy="9" r="3" fill="var(--live)"/>
-      </svg>
-      <b>Cardmic</b><span id="version"></span>
-    </div>
-    <span class="switch-label">Wi-Fi</span>
-    <label class="switch" title="Receive over Wi-Fi"><input type="checkbox" id="wifi"><span></span></label>
-  </header>
-
-  <main>
-    <section class="card hero">
-      <div class="state"><div class="dot" id="dot"></div><div class="title" id="title">Getting ready…</div></div>
-      <div class="detail" id="detail"></div>
-      <div class="badges" id="badges"></div>
-      <div class="meter idle" id="meter"></div>
-      <div class="action hidden" id="action"><button class="primary" id="actionBtn"></button></div>
-    </section>
-
-    <h2>Use in your apps</h2>
-    <section class="card">
-      <div class="row">
-        <div class="k">
-          <div class="mic" id="mic">—</div>
-        </div>
-        <button id="copy">Copy</button>
-      </div>
-      <div class="note" id="micNote">Choose this microphone in Zoom, Teams, Wispr Flow or any other app.</div>
-    </section>
-
-    <h2>Connections</h2>
-    <section class="card">
-      <div class="row"><div class="k">Wi-Fi</div><div class="v" id="wifiState">—</div></div>
-      <div class="row"><div class="k">USB</div><div class="v" id="usbState">—</div></div>
-    </section>
-
-    <h2>Audio</h2>
-    <section class="card">
-      <div class="row"><div class="k">Play into</div><select id="output"></select></div>
-      <div class="row"><div class="k">Lost audio</div><div class="v" id="loss">—</div></div>
-    </section>
-
-    <h2>Pairing</h2>
-    <section class="card" id="pairing">
-      <div class="row" id="paired">
-        <div class="k"><span class="sm live"></span>Paired · encrypted</div>
-        <button class="quiet" id="change">Change</button>
-        <button id="forget">Forget</button>
-      </div>
-      <div id="unpaired">
-        <div class="row">
-          <input class="code" id="code" maxlength="16" placeholder="XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
-          <button class="primary" id="pair">Pair</button>
-        </div>
-        <div class="note" id="pairNote">Turn on Settings › Pairing on the Cardputer and type the code it shows.</div>
-        <div class="err hidden" id="pairErr"></div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <label class="switch"><input type="checkbox" id="login"><span></span></label>
-    <span id="loginLabel">Open at login</span>
-    <span class="grow"></span>
-    <a id="help">Help</a>
-    <span>·</span>
-    <a id="updates">Updates</a>
-  </footer>
-</div>
-
+<canvas id="screen"></canvas>
 <script>
+  // Page errors go to the app's log (Cardmic.log), for support.
+  window.addEventListener("error", (e) => {
+    if (window.ipc) window.ipc.postMessage("log\t" + e.message + " @" + e.lineno);
+  });
+</script>
+<script>
+/*
+ * The Cardmic window, drawn the way the Cardputer draws its screen: a
+ * 260x260 grid of device pixels, 2 CSS pixels each, the device's palette and
+ * bitmap fonts (glcdfont, DejaVu 12, Orbitron Light 24), its spectrogram and
+ * its segmented meter. Rust pushes state ~10 times a second; clicks and keys
+ * go back as one-line commands.
+ */
 (() => {
-  const $ = (id) => document.getElementById(id);
+  const S = 2, W = 260, H = 260;
+  const C = {
+    bg: "#000000", text: "#F2F2F2", dim: "#6E6E6E", faint: "#262626", row: "#121212",
+    label: "#B8B8B8", accent: "#99FF00", cyan: "#28F0FF", warn: "#FFB020", mute: "#FF4A4A",
+  };
+
+  const canvas = document.getElementById("screen");
+  const ctx = canvas.getContext("2d");
+  let K = 2;
+  const cache = new Map(); // rendered text, see cached()
+  function resize() {
+    K = S * (window.devicePixelRatio || 1);
+    cache.clear();
+    canvas.width = W * K;
+    canvas.height = H * K;
+    ctx.imageSmoothingEnabled = false;
+  }
+  resize();
+  window.addEventListener("resize", resize);
+
   const send = (cmd, arg) => {
     const msg = arg === undefined ? cmd : cmd + "\t" + arg;
     if (window.ipc) window.ipc.postMessage(msg); else console.log("ipc:", msg);
   };
 
-  const BARS = 30;
-  const levels = new Array(BARS).fill(0);
-  const meter = $("meter");
-  for (let i = 0; i < BARS; i++) meter.appendChild(document.createElement("i"));
-  const bars = [...meter.children];
+  // ------------------------------------------------------------ drawing
 
-  let state = {};
-  let editingCode = false;
+  // `g` is where pixels go: the screen, or a text cache while one is filled.
+  let g = ctx;
+  const rect = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x * K, y * K, w * K, h * K); };
+  const px = (x, y) => g.fillRect(x * K, y * K, K, K);
 
-  function drawMeter(live) {
-    meter.classList.toggle("idle", !live);
-    for (let i = 0; i < BARS; i++) {
-      const v = live ? levels[i] : 0;
-      bars[i].style.height = Math.max(2, Math.round(v * 34)) + "px";
+  // Rendered text, kept as small images: drawing a string pixel by pixel
+  // every frame costs far more than copying it.
+  function cached(key, x, y, w, h, draw) {
+    let img = cache.get(key);
+    if (!img) {
+      if (cache.size > 400) cache.clear();
+      img = document.createElement("canvas");
+      img.width = Math.max(1, w * K); img.height = Math.max(1, h * K);
+      const saved = g;
+      g = img.getContext("2d");
+      draw();
+      g = saved;
+      cache.set(key, img);
+    }
+    ctx.drawImage(img, x * K, y * K);
+  }
+
+  // Pixel circles, as the device draws them.
+  function fillCircle(cx, cy, r, col) {
+    g.fillStyle = col;
+    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r * 0.8) px(cx + x, cy + y);
+  }
+  function drawCircle(cx, cy, r, col) {
+    g.fillStyle = col;
+    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
+      if (Math.abs(Math.sqrt(x * x + y * y) - r) < 0.55) px(cx + x, cy + y);
     }
   }
 
-  // Peak (0..1) to a 0..1 bar over the 50 dB below full scale.
-  const toBar = (peak) => Math.min(1, Math.max(0, (20 * Math.log10(Math.max(peak, 1e-6)) + 50) / 50));
+  const FONTS = window.CARDMIC_FONTS;
+  const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const font0 = b64(FONTS.font0.data);
+  function gfx(f) {
+    const bits = b64(f.bitmap);
+    let ascent = 0, descent = 0;
+    for (const gl of f.glyphs) { ascent = Math.max(ascent, -gl[5]); descent = Math.max(descent, gl[5] + gl[2]); }
+    return { ...f, bits, ascent, height: ascent + descent };
+  }
+  const DEJAVU = gfx(FONTS.dejavu12), ORBITRON = gfx(FONTS.orbitron24);
+  const ascii = (s) => /^[\x20-\x7e]*$/.test(s);
 
-  function update(s) {
-    state = s;
-    document.documentElement.classList.toggle("mac", s.platform === "mac");
-    $("version").textContent = s.version ? "v" + s.version : "";
-    $("wifi").checked = !!s.wifi;
-    $("login").checked = !!s.login;
-    $("loginLabel").textContent = s.platform === "win" ? "Start with Windows" : "Open at login";
+  // Font0: 6x8 cells, top-left at (x, y).
+  function t0(s, x, y, col) {
+    if (!s) return;
+    cached("0|" + col + "|" + s, x, y, s.length * 6, 8, () => {
+      g.fillStyle = col;
+      for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i) & 0xff;
+        for (let cx = 0; cx < 5; cx++) {
+          const byte = font0[c * 5 + cx];
+          for (let cy = 0; cy < 8; cy++) if (byte & (1 << cy)) px(i * 6 + cx, cy);
+        }
+      }
+    });
+  }
+  const w0 = (s) => Math.max(0, s.length * 6 - 1);
+  const fit0 = (s, max) => (w0(s) <= max ? s : s.slice(0, Math.max(1, Math.floor((max + 1) / 6) - 2)) + "..");
 
-    const dot = $("dot");
-    dot.className = "dot " + ({ connected: "live", searching: "seek", starting: "seek", off: "", wrong_code: "warn" }[s.phase] ?? "warn");
-    if (s.usb && s.phase === "off") dot.className = "dot live";
-    $("title").textContent = s.title || "";
-    $("detail").textContent = s.detail || "";
+  // Names in other scripts (扬声器 ...) have no bitmap: the system font draws them.
+  function tsys(s, x, y, col, size) {
+    g.fillStyle = col;
+    g.font = `${size * K}px -apple-system, "Segoe UI", sans-serif`;
+    g.textBaseline = "top";
+    g.fillText(s, x * K, y * K);
+    return x + Math.ceil(g.measureText(s).width / K);
+  }
 
-    const badges = $("badges");
-    badges.innerHTML = "";
-    if (s.phase === "connected") {
-      const b = document.createElement("span");
-      b.className = "badge" + (s.encrypted ? "" : " warn");
-      b.textContent = s.encrypted ? "Encrypted" : "Not encrypted";
-      badges.appendChild(b);
-      if (s.buffer_ms) {
-        const l = document.createElement("span");
-        l.className = "badge";
-        l.textContent = Math.round(s.buffer_ms) + " ms buffer";
-        badges.appendChild(l);
+  // Adafruit GFX fonts, top of the tallest glyph at y.
+  function tg(f, s, x, y, col) {
+    if (!ascii(s)) return tsys(s, x, y - 1, col, f === ORBITRON ? 20 : 11);
+    const w = wg(f, s);
+    cached((f === ORBITRON ? "o|" : "d|") + col + "|" + s, x, y, w + 2, f.height, () => {
+      g.fillStyle = col;
+      let cx = 0;
+      for (const ch of s) {
+        const gl = f.glyphs[ch.charCodeAt(0) - f.first];
+        if (!gl) continue;
+        const [off, gw, gh, xa, xo, yo] = gl;
+        let bit = 0;
+        for (let yy = 0; yy < gh; yy++) for (let xx = 0; xx < gw; xx++, bit++) {
+          const b = off * 8 + bit;
+          if (f.bits[b >> 3] & (0x80 >> (b & 7))) px(cx + xo + xx, f.ascent + yo + yy);
+        }
+        cx += xa;
+      }
+    });
+    return x + w;
+  }
+  function wg(f, s) {
+    if (!ascii(s)) {
+      ctx.font = `${(f === ORBITRON ? 20 : 11) * K}px -apple-system, "Segoe UI", sans-serif`;
+      return Math.ceil(ctx.measureText(s).width / K);
+    }
+    let w = 0;
+    for (const ch of s) { const g = f.glyphs[ch.charCodeAt(0) - f.first]; if (g) w += g[3]; }
+    return w;
+  }
+  function fit(f, s, max) {
+    if (wg(f, s) <= max) return s;
+    while (s.length > 1 && wg(f, s + "..") > max) s = s.slice(0, -1);
+    return s + "..";
+  }
+  const right = (f, s, xr, y, col) => tg(f, s, xr - wg(f, s), y, col);
+
+  function keycap(x, y, key, label) {
+    const kw = w0(key) + 5;
+    rect(x, y, kw, 10, C.text);
+    for (const [cx, cy] of [[0, 0], [kw - 1, 0], [0, 9], [kw - 1, 9]]) rect(x + cx, y + cy, 1, 1, C.bg);
+    t0(key, x + 3, y + 1, C.bg);
+    x += kw + 3;
+    t0(label, x, y + 1, C.dim);
+    return x + w0(label) + 7;
+  }
+
+  function mix(a, b, t) {
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const ch = (sh) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
+    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+  }
+
+  function ramp(stops, t) {
+    let k = 1;
+    while (k < stops.length - 1 && t > stops[k][0]) k++;
+    const [a0, c0] = stops[k - 1], [a1, c1] = stops[k];
+    const u = Math.min(1, Math.max(0, (t - a0) / (a1 - a0)));
+    const ch = (sh) => Math.round(((c0 >> sh) & 255) * (1 - u) + ((c1 >> sh) & 255) * u);
+    return [ch(16), ch(8), ch(0)];
+  }
+
+  // ------------------------------------------------------------ spectrogram
+
+  // The device's palette: black below the noise floor, then its heat ramp.
+  const SPEC_STOPS = [[0, 0x000000], [0.14, 0x0d1fb0], [0.32, 0x2f6bff], [0.5, 0x28f0ff], [0.68, 0x99ff00], [0.84, 0xffd000], [1, 0xff3b3b]];
+  const PALETTE = Array.from({ length: 256 }, (_, i) => ramp(SPEC_STOPS, i / 255));
+  const BANDS = 62, SPEC_W = 256, SPEC_X = 2, SPEC_Y = 22;
+  const spec = document.createElement("canvas");
+  spec.width = SPEC_W; spec.height = BANDS;
+  const sctx = spec.getContext("2d");
+  sctx.fillStyle = "#000"; sctx.fillRect(0, 0, SPEC_W, BANDS);
+  const queue = [];   // columns waiting to scroll in, at 100 per second like the device
+  let specDebt = 0, lastFrame = performance.now();
+
+  function addColumns(hex) {
+    for (let i = 0; i + BANDS * 2 <= hex.length; i += BANDS * 2) {
+      const col = new Uint8Array(BANDS);
+      for (let r = 0; r < BANDS; r++) col[r] = parseInt(hex.substr(i + r * 2, 2), 16);
+      queue.push(col);
+    }
+    if (queue.length > 60) queue.splice(0, queue.length - 30); // fell behind: skip ahead
+  }
+  function scrollSpectrogram(now) {
+    specDebt += (now - lastFrame) / 10;
+    lastFrame = now;
+    const n = Math.min(Math.floor(specDebt), queue.length);
+    if (n <= 0) { if (!queue.length) specDebt = Math.min(specDebt, 1); return; }
+    specDebt -= n;
+    sctx.drawImage(spec, -n, 0);
+    const img = sctx.createImageData(n, BANDS);
+    for (let c = 0; c < n; c++) {
+      const col = queue.shift();
+      for (let r = 0; r < BANDS; r++) {
+        const [rr, gg, bb] = PALETTE[col[r]];
+        const o = ((BANDS - 1 - r) * n + c) * 4;
+        img.data[o] = rr; img.data[o + 1] = gg; img.data[o + 2] = bb; img.data[o + 3] = 255;
       }
     }
-    badges.classList.toggle("hidden", !badges.children.length);
+    sctx.putImageData(img, SPEC_W - n, 0);
+  }
 
+  // ------------------------------------------------------------ meter
+
+  const SEGS = 16;
+  const HEAT = [[0, 0x1b2a6b], [0.22, 0x2f6bff], [0.42, 0x28f0ff], [0.62, 0x99ff00], [0.8, 0xffd000], [1, 0xff3b3b]];
+  const heat = (t) => { const [r, g, b] = ramp(HEAT, t); return `rgb(${r},${g},${b})`; };
+  let meter = 0, peakHold = 0, peakAt = 0, dbShown = -60, dbAt = 0, lastLevel = 0, lastLevelAt = 0;
+  function stepMeter(level, now) {
+    if (now - lastLevelAt < 30) return; // ballistics at the device's pace
+    lastLevelAt = now;
+    const db = 20 * Math.log10(Math.max(level, 1e-6));
+    const target = Math.min(1, Math.max(0, (db + 60) / 60)); // -60..0 dBFS
+    meter = target > meter ? target : meter * 0.9 + target * 0.1;
+    if (meter >= peakHold || now - peakAt > 1000) {
+      peakHold = meter >= peakHold ? meter : Math.max(meter, peakHold - 0.02);
+      if (meter >= peakHold) peakAt = now;
+    }
+    if (now - dbAt > 250) { dbShown = Math.round(meter * 60 - 60); dbAt = now; }
+  }
+  function drawMeter(x, y) {
+    const lit = Math.round(meter * SEGS);
+    const peak = Math.min(SEGS - 1, Math.round(peakHold * SEGS));
+    for (let i = 0; i < SEGS; i++) {
+      let col = i < lit ? heat((i + 0.5) / SEGS) : C.faint;
+      if (i === peak && peak > 0) col = C.text;
+      rect(x + i * 5, y, 4, 8, col);
+    }
+    const s = dbShown + " DB";
+    t0(s, x + SEGS * 5 - 1 - w0(s), y + 12, C.dim);
+  }
+
+  // ------------------------------------------------------------ state
+
+  let state = { phase: "starting", title: "", detail: "" };
+  let sel = 0;             // selected row
+  let entry = null;        // pairing code being typed, or null
+  let entryError = "";
+  let copiedAt = -1e9;
+  let rows = [];           // this frame's rows: {y, h, i, act}
+  let hits = [];           // other clickable rects
+
+  function rowList() {
+    const s = state, list = [];
+    const fix = {
+      no_loopback: ["Install " + (s.install_name || "a virtual device"), () => send("open", "install")],
+      mic_denied: ["Allow microphone access", () => send("open", "privacy")],
+      busy: ["Try again", () => send("retry")],
+      failed: ["Try again", () => send("retry")],
+      wrong_code: ["Enter the new code", () => startEntry()],
+    }[s.phase];
+    if (fix) list.push({ label: "Fix", value: fix[0], col: C.warn, act: fix[1] });
     const live = s.phase === "connected";
-    levels.shift();
-    levels.push(live ? toBar(s.level || 0) : 0);
-    drawMeter(live);
+    const mic = live ? s.mic : (s.usb || s.mic);
+    list.push({
+      label: "Microphone", value: performance.now() - copiedAt < 1200 ? "COPIED" : (mic || "-"),
+      col: mic && (live || s.usb) ? C.accent : C.dim,
+      act: mic ? () => { send("copy", mic); copiedAt = performance.now(); } : null,
+    });
+    list.push({
+      label: "Wi-Fi",
+      value: !s.wifi ? "OFF" : live ? s.device : s.phase === "searching" ? "SEARCHING" : s.phase === "starting" ? "STARTING" : "NOT LINKED",
+      col: !s.wifi ? C.dim : live ? C.accent : C.warn,
+      act: () => send("wifi", s.wifi ? "0" : "1"),
+    });
+    list.push({ label: "USB", value: s.usb ? "PLUGGED IN" : "-", col: s.usb ? C.accent : C.dim, act: null });
+    list.push({
+      label: "Pairing", value: s.paired ? (live && s.encrypted ? "ENCRYPTED" : "ON") : "OFF",
+      col: s.paired ? C.accent : C.dim, act: () => startEntry(),
+    });
+    const outs = [""].concat((s.outputs || []).map((o) => o.name));
+    const cur = s.manual ? (s.output || "") : "";
+    list.push({
+      label: "Play into", value: s.manual ? (s.output || "-") : "AUTO" + (s.output ? "  " + s.output : ""),
+      col: C.text,
+      act: outs.length > 1 ? () => send("output", outs[(outs.indexOf(cur) + 1) % outs.length]) : null,
+    });
+    list.push({
+      label: s.platform === "win" ? "Start with Windows" : "Open at login", value: s.login ? "ON" : "OFF",
+      col: s.login ? C.accent : C.dim, act: () => send("login", s.login ? "0" : "1"),
+    });
+    return list;
+  }
 
-    const act = { no_loopback: ["Install " + (s.install_name || "a virtual audio device"), "install"],
-                  mic_denied: ["Open Privacy Settings", "privacy"],
-                  busy: ["Try Again", "retry"], failed: ["Try Again", "retry"],
-                  off: ["Turn On Wi-Fi", "wifi_on"], wrong_code: ["Enter New Code", "focus_pair"] }[s.phase];
-    $("action").classList.toggle("hidden", !act);
-    if (act) { $("actionBtn").textContent = act[0]; $("actionBtn").dataset.cmd = act[1]; }
+  function startEntry() { entry = ""; entryError = ""; }
 
-    const mic = s.phase === "connected" ? s.mic : (s.usb || s.mic);
-    $("mic").textContent = mic || "—";
-    $("copy").classList.toggle("hidden", !mic);
-    $("micNote").textContent = s.phase === "connected"
-      ? "Choose this microphone in Zoom, Teams, Wispr Flow or any other app."
-      : s.usb ? "Plugged in over USB: choose this microphone in your app."
-      : "Shown here once the Cardputer is connected.";
+  // ------------------------------------------------------------ frame
 
-    $("wifiState").innerHTML = s.phase === "connected"
-      ? '<span class="sm live"></span>' + esc(s.device || "Connected")
-      : esc(s.wifi ? (s.phase === "searching" ? "Searching…" : "Not connected") : "Off");
-    $("wifiState").classList.toggle("on", s.phase === "connected");
-    $("usbState").innerHTML = s.usb ? '<span class="sm live"></span>Plugged in' : "Not plugged in";
-    $("usbState").classList.toggle("on", !!s.usb);
+  function frame(now) {
+    ctx.fillStyle = C.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    hits = [];
+    rows = [];
+    const s = state, mac = s.platform !== "win";
+    const live = s.phase === "connected";
 
-    const out = $("output");
-    const opts = [["", "Automatic" + (!s.manual && s.output ? " (" + s.output + ")" : "")]]
-      .concat((s.outputs || []).map((o) => [o.name, o.label]));
-    const key = JSON.stringify(opts) + (s.manual ? s.output : "");
-    if (out.dataset.key !== key && document.activeElement !== out) {
-      out.innerHTML = "";
-      for (const [v, t] of opts) { const o = document.createElement("option"); o.value = v; o.textContent = t; out.appendChild(o); }
-      out.value = s.manual ? (s.output || "") : "";
-      out.dataset.key = key;
+    // Top row: title, then the device's link lights.
+    const x0 = mac ? 40 : 2;
+    t0("CARDMIC", x0, 5, C.accent);
+    if (s.version) t0("V" + s.version, x0 + w0("CARDMIC") + 6, 5, C.dim);
+    const light = (x, col, label, flowing) => {
+      if (flowing) drawCircle(x + 3, 8, 5, mix(C.bg, col, 0.2 + 0.6 * (0.5 + 0.5 * Math.sin(now * 0.0063))));
+      fillCircle(x + 3, 8, 3, col);
+      t0(label, x + 11, 5, col);
+    };
+    const seeking = s.phase === "searching" || s.phase === "starting";
+    const wifiCol = !s.wifi ? C.dim : live ? C.accent : seeking ? (Math.floor(now / 350) % 2 ? C.warn : C.faint) : C.warn;
+    light(W - 2 - 72, s.usb ? C.accent : C.dim, "USB", false);
+    light(W - 2 - 36, wifiCol, "WIFI", live && (s.level || 0) > 0.002);
+
+    // Spectrogram, with the device's log-frequency ticks.
+    scrollSpectrogram(now);
+    ctx.drawImage(spec, SPEC_X * K, SPEC_Y * K, SPEC_W * K, BANDS * K);
+    for (const [hz, lab] of [[4000, "4K"], [1000, "1K"], [250, "250"]]) {
+      const y = SPEC_Y + BANDS - 1 - Math.floor(BANDS * Math.log(hz / 100) / Math.log(80));
+      rect(SPEC_X, y, 3, 1, C.dim);
+      t0(lab, SPEC_X + 5, y - 3, C.dim);
     }
-    out.disabled = !(s.outputs || []).length;
 
-    $("loss").textContent = live ? (s.loss_pct || 0).toFixed(1) + " %" : "—";
+    // State word and meter, as on the device's main screen.
+    const word = {
+      connected: ["LIVE", C.accent], searching: ["SEARCH", C.dim], starting: ["WAIT", C.dim],
+      off: s.usb ? ["USB", C.accent] : ["IDLE", C.dim], wrong_code: ["PAIR", C.warn],
+    }[s.phase] || ["SETUP", C.warn];
+    tg(ORBITRON, word[0], 2, 92, word[1]);
+    stepMeter(live ? (s.level || 0) : 0, now);
+    drawMeter(W - 2 - SEGS * 5 + 1, 93);
 
-    $("paired").classList.toggle("hidden", !s.paired || editingCode);
-    $("unpaired").classList.toggle("hidden", !!s.paired && !editingCode);
-  }
+    const detail = live ? `CARDPUTER AT ${s.device}  ${s.encrypted ? "ENCRYPTED" : "NOT ENCRYPTED"}` : (s.detail || "").toUpperCase();
+    const dcol = !live && word[1] === C.warn ? C.warn : C.dim;
+    if (ascii(detail)) t0(fit0(detail, W - 4), 2, 120, dcol); else tsys(detail, 2, 119, dcol, 9);
 
-  function esc(t) { return String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+    if (entry !== null) drawEntry(now); else drawRows();
 
-  function focusPair() {
-    editingCode = true;
-    update(state);
-    $("code").focus();
-  }
-
-  function pairResult(ok, message) {
-    const err = $("pairErr");
-    if (ok) {
-      editingCode = false;
-      $("code").value = "";
-      err.classList.add("hidden");
+    // Key hints and stats along the bottom, like the device.
+    let hx = 2;
+    const hy = H - 13;
+    if (entry !== null) {
+      hx = keycap(hx, hy, "ENT", "PAIR");
+      keycap(hx, hy, "ESC", "BACK");
     } else {
-      err.textContent = message;
-      err.classList.remove("hidden");
+      hx = keycap(hx, hy, "\x18\x19", "MOVE");
+      keycap(hx, hy, "ENT", "OPEN");
     }
-    update(state);
+    const stats = live ? `BUF ${Math.round(s.buffer_ms || 0)}MS  LOSS ${(s.loss_pct || 0).toFixed(1)}%` : "";
+    t0(stats, W - 2 - w0(stats), hy + 1, C.dim);
+
+    requestAnimationFrame(frame);
   }
 
-  // Type 7K2M9QXB4TPA, see 7K2M-9QXB-4TPA.
-  $("code").addEventListener("input", (e) => {
-    const raw = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 12);
-    e.target.value = raw.replace(/(.{4})(?=.)/g, "$1-");
-    $("pairErr").classList.add("hidden");
-  });
-  $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pair").click(); if (e.key === "Escape" && state.paired) { editingCode = false; update(state); } });
-  $("pair").addEventListener("click", () => send("pair", $("code").value));
-  $("change").addEventListener("click", focusPair);
-  $("forget").addEventListener("click", () => send("unpair"));
-  $("wifi").addEventListener("change", (e) => send("wifi", e.target.checked ? "1" : "0"));
-  $("login").addEventListener("change", (e) => send("login", e.target.checked ? "1" : "0"));
-  $("output").addEventListener("change", (e) => send("output", e.target.value));
-  $("copy").addEventListener("click", () => {
-    send("copy", $("mic").textContent);
-    $("copy").textContent = "Copied";
-    setTimeout(() => ($("copy").textContent = "Copy"), 1200);
-  });
-  $("help").addEventListener("click", () => send("open", "help"));
-  $("updates").addEventListener("click", () => send("open", "updates"));
-  $("actionBtn").addEventListener("click", (e) => {
-    const c = e.target.dataset.cmd;
-    if (c === "focus_pair") focusPair();
-    else if (c === "wifi_on") send("wifi", "1");
-    else if (c === "retry") send("retry");
-    else send("open", c);
-  });
-  // Drag the window by its header (the title bar is part of the page).
-  $("drag").addEventListener("mousedown", (e) => {
-    if (e.button === 0 && !e.target.closest("label, button, input, select")) send("drag");
-  });
-  document.addEventListener("contextmenu", (e) => { if (!e.target.closest("input")) e.preventDefault(); });
+  function drawRows() {
+    const list = rowList();
+    sel = Math.min(sel, list.length - 1);
+    const top = 134, rh = 14;
+    t0("SETTINGS", 2, top, C.accent);
+    const pos = String(sel + 1).padStart(2, "0") + "/" + String(list.length).padStart(2, "0");
+    t0(pos, W - 2 - w0(pos), top, C.dim);
+    list.forEach((r, i) => {
+      const y = top + 11 + i * rh;
+      const on = i === sel;
+      if (on) { rect(0, y, W, rh, C.row); rect(0, y, 3, rh, C.accent); }
+      t0(String(i + 1).padStart(2, "0"), 7, y + 3, on ? C.accent : C.dim);
+      tg(DEJAVU, r.label, 24, y + 2, on ? C.text : C.label);
+      const room = W - 4 - 24 - wg(DEJAVU, r.label) - 10;
+      right(DEJAVU, fit(DEJAVU, r.value, room), W - 4, y + 2, r.col);
+      rows.push({ y, h: rh, i, act: r.act });
+    });
+  }
 
-  window.cardmic = { update, pairResult, focusPair };
+  function drawEntry(now) {
+    const top = 134;
+    t0("PAIRING", 2, top, C.accent);
+    t0("TYPE THE CODE FROM CARDMIC > SETTINGS > PAIRING", 2, top + 14, C.dim);
+    rect(2, top + 27, W - 4, 20, C.row);
+    rect(2, top + 27, 3, 20, C.accent);
+    const shown = entry.replace(/(.{4})(?=.)/g, "$1-");
+    if (!entry) tg(DEJAVU, "XXXX-XXXX-XXXX", 10, top + 32, C.faint);
+    const ex = entry ? tg(DEJAVU, shown, 10, top + 32, C.text) : 10;
+    if (Math.floor(now / 500) % 2) rect(ex + 1, top + 31, 1, 12, C.accent);
+    if (entryError) t0(fit0(entryError.toUpperCase(), W - 4), 2, top + 53, C.mute);
+    else if (state.paired) t0("A NEW CODE REPLACES THE CURRENT ONE", 2, top + 53, C.dim);
+  }
+
+  // ------------------------------------------------------------ input
+
+  const at = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / S, (e.clientY - r.top) / S]; };
+  const inside = (h, x, y) => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h;
+  canvas.addEventListener("mousemove", (e) => {
+    const [x, y] = at(e);
+    const row = entry === null && rows.find((r) => y >= r.y && y < r.y + r.h);
+    if (row) sel = row.i;
+    canvas.style.cursor = (row && row.act) || hits.some((h) => inside(h, x, y)) ? "pointer" : "default";
+  });
+  canvas.addEventListener("mousedown", (e) => {
+    const [x, y] = at(e);
+    const hit = hits.find((h) => inside(h, x, y));
+    if (hit) return hit.act();
+    const row = entry === null && rows.find((r) => y >= r.y && y < r.y + r.h);
+    if (row) { sel = row.i; if (row.act) row.act(); return; }
+    if (y < 18) send("drag"); // the top row is the title bar
+  });
+  document.addEventListener("keydown", (e) => {
+    if (entry !== null) {
+      if (e.key === "Escape") entry = null;
+      else if (e.key === "Enter") send("pair", entry);
+      else if (e.key === "Backspace") { entry = entry.slice(0, -1); entryError = ""; }
+      else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+        const c = e.key.toUpperCase().replace(/[^0-9A-Z]/g, "");
+        if (c && entry.length < 12) { entry += c; entryError = ""; }
+      }
+      return;
+    }
+    const list = rowList();
+    if (e.key === "ArrowUp" || e.key === ";") sel = Math.max(0, sel - 1);
+    else if (e.key === "ArrowDown" || e.key === ".") sel = Math.min(list.length - 1, sel + 1);
+    else if (e.key === "Enter" || e.key === " ") { const r = list[sel]; if (r && r.act) r.act(); }
+    else if (e.key === "h" || e.key === "H") send("open", "help");
+  });
+  document.addEventListener("paste", (e) => {
+    if (entry === null) return;
+    entry = (entry + (e.clipboardData.getData("text") || "").toUpperCase().replace(/[^0-9A-Z]/g, "")).slice(0, 12);
+  });
+  document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // ------------------------------------------------------------ from Rust
+
+  function update(s) {
+    if (s.spec) addColumns(s.spec);
+    delete s.spec;
+    state = s;
+  }
+  function pairResult(ok, message) {
+    if (ok) { entry = null; entryError = ""; } else entryError = message;
+  }
+  window.cardmic = { update, pairResult, focusPair: startEntry };
+  requestAnimationFrame(frame);
 
   if (!window.ipc) {
     // Demo mode: opened in a browser, not in the app.
     let t = 0;
-    const demo = () => {
-      t += 1;
-      const speaking = Math.sin(t / 6) > -0.2;
+    setInterval(() => {
+      t++;
+      const speaking = Math.sin(t / 7) > -0.1;
+      let hex = "";
+      for (let c = 0; c < 10; c++) {
+        const f0 = 8 + 4 * Math.sin((t * 10 + c) / 9);
+        for (let r = 0; r < BANDS; r++) {
+          let v = Math.random() < 0.08 ? Math.random() * 60 : 0;
+          if (speaking) for (let h = 1; h <= 5; h++) {
+            const d = Math.abs(r - (f0 + h * 7));
+            if (d < 2.5) v = Math.max(v, 230 - d * 60 - h * 18 + Math.random() * 30);
+          }
+          hex += Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0");
+        }
+      }
       update({
         platform: "mac", version: "0.6.0", wifi: true, login: true, phase: "connected",
-        title: "Connected", detail: "Cardputer at 192.168.1.42", device: "192.168.1.42",
-        encrypted: true, mic: "BlackHole 2ch", output: "BlackHole 2ch", manual: false,
+        title: "Connected", detail: "", device: "192.168.1.42", encrypted: true,
+        mic: "BlackHole 2ch", output: "BlackHole 2ch", manual: false,
         outputs: [{ name: "BlackHole 2ch", label: "BlackHole 2ch" }, { name: "Microsoft Teams Audio", label: "Microsoft Teams Audio" }],
-        level: speaking ? 0.08 + Math.random() * 0.45 : Math.random() * 0.01,
-        buffer_ms: 118, loss_pct: 0, usb: null, paired: true, install_name: "BlackHole 2ch",
+        level: speaking ? 0.05 + Math.random() * 0.4 : Math.random() * 0.004,
+        buffer_ms: 120, loss_pct: 0, usb: null, paired: true, install_name: "BlackHole 2ch", spec: hex,
       });
-    };
-    setInterval(demo, 100);
+    }, 100);
   } else {
     send("ready");
   }

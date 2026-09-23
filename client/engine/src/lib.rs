@@ -10,6 +10,7 @@
 pub mod net;
 pub mod output;
 pub mod pairing_store;
+pub mod spectrum;
 
 use cardmic_audio::sink::{OutputSink, SampleQueue};
 use cardmic_audio::Candidate;
@@ -105,6 +106,7 @@ impl std::fmt::Display for StartError {
 pub struct Engine {
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<Status>>,
+    spectrum: Arc<Mutex<spectrum::Spectrum>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -128,17 +130,19 @@ impl Engine {
             target_ms: 0.0,
             level: 0.0,
         }));
+        let spectrum = Arc::new(Mutex::new(spectrum::Spectrum::new()));
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let thread = {
             let stop = stop.clone();
             let status = status.clone();
+            let spectrum = spectrum.clone();
             std::thread::Builder::new()
                 .name("cardmic-engine".into())
                 .spawn(move || {
                     // The audio stream is created on this thread: cpal streams
                     // are not Send on every platform.
                     let host = cpal::default_host();
-                    let receiver = match Receiver::open(&host, opts, status) {
+                    let receiver = match Receiver::open(&host, opts, status, spectrum) {
                         Ok(r) => {
                             let _ = ready_tx.send(Ok(()));
                             r
@@ -153,7 +157,7 @@ impl Engine {
                 .map_err(|e| StartError::Other(format!("cannot start the receive thread: {e}")))?
         };
         match ready_rx.recv() {
-            Ok(Ok(())) => Ok(Engine { stop, status, thread: Some(thread) }),
+            Ok(Ok(())) => Ok(Engine { stop, status, spectrum, thread: Some(thread) }),
             Ok(Err(e)) => {
                 let _ = thread.join();
                 Err(e)
@@ -167,6 +171,11 @@ impl Engine {
 
     pub fn status(&self) -> Status {
         self.status.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Spectrogram columns (see [`spectrum`]) since the last call.
+    pub fn take_spectrum(&self) -> Vec<spectrum::Column> {
+        self.spectrum.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 }
 
@@ -224,10 +233,16 @@ struct Receiver {
     devices: Vec<SocketAddr>,
     targets: Vec<SocketAddr>,
     status: Arc<Mutex<Status>>,
+    spectrum: Arc<Mutex<spectrum::Spectrum>>,
 }
 
 impl Receiver {
-    fn open(host: &cpal::Host, opts: Options, status: Arc<Mutex<Status>>) -> Result<Receiver, StartError> {
+    fn open(
+        host: &cpal::Host,
+        opts: Options,
+        status: Arc<Mutex<Status>>,
+        spectrum: Arc<Mutex<spectrum::Spectrum>>,
+    ) -> Result<Receiver, StartError> {
         // Socket first: if another Cardmic is running, say so rather than
         // grabbing the audio device it is using.
         let socket = net::bind().map_err(|e| match e.kind() {
@@ -248,6 +263,7 @@ impl Receiver {
             targets: net::discovery_targets(&opts.devices),
             devices: opts.devices,
             status,
+            spectrum,
         })
     }
 
@@ -340,16 +356,22 @@ impl Receiver {
                     peak = samples.iter().fold(peak, |m, s| m.max(s.abs()));
                     let mut st_packets = 1u64;
                     match sequencer.accept(packet.sequence) {
-                        Action::Play => self.stream.push(&samples),
+                        Action::Play => {
+                            self.stream.push(&samples);
+                            self.analyse(&samples);
+                        }
                         Action::ConcealThenPlay { silent_packets } => {
                             self.lock().concealed += silent_packets as u64;
                             self.stream.conceal(silent_packets);
                             self.stream.push(&samples);
+                            self.analyse(&vec![0.0; silent_packets as usize * SAMPLES_PER_PACKET]);
+                            self.analyse(&samples);
                         }
                         Action::ResyncThenPlay => {
                             self.lock().resyncs += 1;
                             self.stream.resync();
                             self.stream.push(&samples);
+                            self.analyse(&samples);
                         }
                         Action::Drop => {
                             self.lock().dropped += 1;
@@ -399,6 +421,10 @@ impl Receiver {
                 peak = 0.0;
             }
         }
+    }
+
+    fn analyse(&self, samples: &[f32]) {
+        self.spectrum.lock().unwrap_or_else(|e| e.into_inner()).push(samples);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Status> {

@@ -650,6 +650,7 @@ impl App {
             },
             Command::Retry => self.set_wifi(true),
             Command::Copy(text) => platform::copy_text(&text),
+            Command::Log(msg) => log(&format!("window: {msg}")),
             Command::Drag => {
                 if let Some(ui) = &self.ui {
                     let _ = ui.window.drag_window();
@@ -676,10 +677,27 @@ impl App {
         }
     }
 
-    /// Send the state to the window, if it is open.
+    /// Send the state, and new spectrogram columns, to the window if it is
+    /// open. Columns that pile up while it is closed are dropped.
     fn push_state(&self) {
+        let columns = match &self.wifi {
+            Wifi::Running(engine) => engine.take_spectrum(),
+            _ => Vec::new(),
+        };
         let Some(ui) = self.ui.as_ref().filter(|u| u.visible()) else { return };
-        ui.push(&self.state_json());
+        let mut json = self.state_json();
+        if !columns.is_empty() {
+            let mut hex = String::with_capacity(columns.len() * columns[0].len() * 2);
+            for col in &columns {
+                for b in col {
+                    use std::fmt::Write as _;
+                    let _ = write!(hex, "{b:02x}");
+                }
+            }
+            json.pop(); // the closing brace
+            json.push_str(&format!(",\"spec\":\"{hex}\"}}"));
+        }
+        ui.push(&json);
     }
 
     fn state_json(&self) -> String {
