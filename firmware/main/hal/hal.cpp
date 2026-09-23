@@ -292,7 +292,9 @@ void Hal::wifiDeinit()
 
 bool Hal::wifiConnect(const std::string& ssid, const std::string& password)
 {
-    mclog::tagInfo(_tag, "wifi connect to ssid: {} password: {}", ssid, password);
+    // Cardmic: never log the password itself; this firmware is public and its
+    // console is readable over USB.
+    mclog::tagInfo(_tag, "wifi connect to ssid: {} ({} character password)", ssid, password.size());
 
     if (!_is_wifi_inited) {
         wifiInit();

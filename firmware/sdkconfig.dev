@@ -1,0 +1,7 @@
+# Extra configuration for development builds only (see CMakeLists.txt,
+# CARDMIC_DEV). Adds a USB serial port to the composite device so the app can
+# be driven and its logs read while it owns USB. Never used for releases:
+#   idf.py -B build-dev -DCARDMIC_DEV=1 -DSDKCONFIG=build-dev/sdkconfig \
+#          -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.dev" build
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=1

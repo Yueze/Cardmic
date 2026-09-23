@@ -20,6 +20,12 @@
 #include "esp_private/usb_phy.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#ifdef CARDMIC_DEV_TOOLS
+#include "../dev_console.h"
+#include "freertos/queue.h"
+#include "tusb_cdc_acm.h"
+#include "tusb_console.h"
+#endif
 #include "class/hid/hid_device.h"
 #include "tinyusb.h"
 #include "tusb.h"
@@ -34,6 +40,15 @@
 // particular) cache a device's interfaces per VID/PID.
 #define USB_PID_MIC 0x4011
 #define USB_PID_MIC_KEYBOARD 0x4012
+#ifdef CARDMIC_DEV_TOOLS
+// Development builds carry a USB serial port as well, so they are different
+// USB products again (hosts cache a device's interfaces per VID/PID).
+#define USB_PID_DEV_MIC 0x4013
+#define USB_PID_DEV_MIC_KEYBOARD 0x4014
+#define USB_CDC_EP_NOTIF 0x83
+#define USB_CDC_EP_OUT 0x03
+#define USB_CDC_EP_IN 0x84
+#endif
 
 static const char *TAG = "cardmic_usb";
 
@@ -52,6 +67,7 @@ enum {
     STRID_SERIAL,
     STRID_AUDIO_INTERFACE,
     STRID_HID_INTERFACE,
+    STRID_CDC_INTERFACE,
 };
 
 static volatile bool s_installed;
@@ -65,6 +81,10 @@ static audio_control_range_2_n_t(1) s_volume_range;
 static audio_control_range_4_n_t(1) s_sample_freq_range;
 static char s_usb_serial[13] = "000000000000";
 static bool s_keyboard;  // this session enumerates the talk-key keyboard too
+// Set while the USB PHY is handed back to the serial/JTAG controller. It must
+// be deleted before TinyUSB can take the PHY again, or a restart (switching
+// the talk key on or off) leaves the device with no USB at all.
+static usb_phy_handle_t s_jtag_phy;
 
 static tusb_desc_device_t s_device_descriptor = {
     .bLength = sizeof(tusb_desc_device_t),
@@ -85,12 +105,6 @@ static tusb_desc_device_t s_device_descriptor = {
     .bNumConfigurations = 1,
 };
 
-static const uint8_t s_configuration_descriptor[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, USB_CONFIG_TOTAL_LEN, 0x00, 100),
-    TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
-                                    AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
-};
-
 // The keyboard interface reuses the stock firmware's HID report descriptor
 // (keyboard as report 1, mouse as report 2): its tud_hid_descriptor_report_cb()
 // is the one linked, and it returns that descriptor for every instance. This
@@ -98,6 +112,13 @@ static const uint8_t s_configuration_descriptor[] = {
 static const uint8_t s_hid_report_len_ref[] = {
     TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(HID_ITF_PROTOCOL_KEYBOARD)),
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE)),
+};
+
+#ifndef CARDMIC_DEV_TOOLS
+static const uint8_t s_configuration_descriptor[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, USB_CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
+                                    AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
 };
 
 static const uint8_t s_configuration_descriptor_kb[] = {
@@ -108,6 +129,8 @@ static const uint8_t s_configuration_descriptor_kb[] = {
                        USB_HID_EP_IN, 16, 10),
 };
 
+#endif  // !CARDMIC_DEV_TOOLS
+
 static const char *s_string_descriptor[] = {
     (const char[]){0x09, 0x04},
     "Cardmic",
@@ -115,7 +138,91 @@ static const char *s_string_descriptor[] = {
     s_usb_serial,
     "Cardmic Microphone",
     "Cardmic Talk Key",
+    "Cardmic Dev Console",
 };
+
+#ifdef CARDMIC_DEV_TOOLS
+// Same two configurations plus a serial port (interfaces after the others).
+#define USB_CONFIG_TOTAL_LEN_DEV (USB_CONFIG_TOTAL_LEN + TUD_CDC_DESC_LEN)
+#define USB_CONFIG_TOTAL_LEN_DEV_KB (USB_CONFIG_TOTAL_LEN_KB + TUD_CDC_DESC_LEN)
+
+static const uint8_t s_configuration_descriptor_dev[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL + 2, 0, USB_CONFIG_TOTAL_LEN_DEV, 0x00, 100),
+    TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
+                                    AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_HID, STRID_CDC_INTERFACE, USB_CDC_EP_NOTIF, 8, USB_CDC_EP_OUT, USB_CDC_EP_IN, 64),
+};
+
+static const uint8_t s_configuration_descriptor_dev_kb[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL_KB + 2, 0, USB_CONFIG_TOTAL_LEN_DEV_KB, 0x00, 100),
+    TUD_AUDIO_MIC_ONE_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, STRID_AUDIO_INTERFACE, AUDIO_BYTES_PER_SAMPLE,
+                                    AUDIO_BYTES_PER_SAMPLE * 8, USB_AUDIO_EP_IN, CFG_TUD_AUDIO_EP_SZ_IN),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID_INTERFACE, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_len_ref),
+                       USB_HID_EP_IN, 16, 10),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_TOTAL_KB, STRID_CDC_INTERFACE, USB_CDC_EP_NOTIF, 8, USB_CDC_EP_OUT, USB_CDC_EP_IN, 64),
+};
+
+static QueueHandle_t s_dev_lines;  // command lines from the USB serial port
+
+static void dev_cdc_reply(const char *line)
+{
+    tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, (const uint8_t *)line, strlen(line));
+    tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, (const uint8_t *)"\r\n", 2);
+    tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(200));
+}
+
+static void dev_cdc_rx(int itf, cdcacm_event_t *event)
+{
+    (void)event;
+    static char line[160];
+    static size_t len;
+    uint8_t buf[64];
+    size_t got = 0;
+    while (tinyusb_cdcacm_read(itf, buf, sizeof(buf), &got) == ESP_OK && got > 0) {
+        for (size_t i = 0; i < got; ++i) {
+            if (buf[i] == '\n' || buf[i] == '\r') {
+                if (len && s_dev_lines) {
+                    line[len] = '\0';
+                    xQueueSend(s_dev_lines, line, 0);
+                }
+                len = 0;
+            } else if (len < sizeof(line) - 1) {
+                line[len++] = (char)buf[i];
+            }
+        }
+        got = 0;
+    }
+}
+
+static void dev_cdc_task(void *arg)
+{
+    (void)arg;
+    char line[160];
+    while (1) {
+        if (xQueueReceive(s_dev_lines, line, portMAX_DELAY) == pdTRUE) {
+            cardmic_dev_command(line, dev_cdc_reply);
+        }
+    }
+}
+
+static void dev_cdc_start(void)
+{
+    if (!s_dev_lines) {
+        s_dev_lines = xQueueCreate(8, 160);
+        xTaskCreate(dev_cdc_task, "cardmic_devcdc", 6144, NULL, 3, NULL);
+    }
+    tinyusb_config_cdcacm_t acm = {
+        .usb_dev = TINYUSB_USBDEV_0,
+        .cdc_port = TINYUSB_CDC_ACM_0,
+        .callback_rx = dev_cdc_rx,
+    };
+    tusb_cdc_acm_init(&acm);
+    // Send the app's log output there too: while Cardmic owns USB the
+    // serial/JTAG console is unavailable, and those logs are what explain a
+    // failed Wi-Fi join or a crash.
+    esp_tusb_init_console(TINYUSB_CDC_ACM_0);
+}
+#endif
 
 esp_err_t cardmic_usb_start(bool with_keyboard)
 {
@@ -123,7 +230,15 @@ esp_err_t cardmic_usb_start(bool with_keyboard)
         return ESP_OK;
     }
     s_keyboard = with_keyboard;
+#ifdef CARDMIC_DEV_TOOLS
+    s_device_descriptor.idProduct = with_keyboard ? USB_PID_DEV_MIC_KEYBOARD : USB_PID_DEV_MIC;
+#else
     s_device_descriptor.idProduct = with_keyboard ? USB_PID_MIC_KEYBOARD : USB_PID_MIC;
+#endif
+    if (s_jtag_phy) {
+        usb_del_phy(s_jtag_phy);
+        s_jtag_phy = NULL;
+    }
 
     for (size_t i = 0; i < AUDIO_CHANNEL_COUNT + 1; ++i) {
         s_mute[i] = false;
@@ -149,7 +264,11 @@ esp_err_t cardmic_usb_start(bool with_keyboard)
         .string_descriptor = s_string_descriptor,
         .string_descriptor_count = sizeof(s_string_descriptor) / sizeof(s_string_descriptor[0]),
         .external_phy = false,
+#ifdef CARDMIC_DEV_TOOLS
+        .configuration_descriptor = with_keyboard ? s_configuration_descriptor_dev_kb : s_configuration_descriptor_dev,
+#else
         .configuration_descriptor = with_keyboard ? s_configuration_descriptor_kb : s_configuration_descriptor,
+#endif
     };
     esp_err_t err = tinyusb_driver_install(&cfg);
     if (err != ESP_OK) {
@@ -157,6 +276,9 @@ esp_err_t cardmic_usb_start(bool with_keyboard)
         return err;
     }
     s_installed = true;
+#ifdef CARDMIC_DEV_TOOLS
+    dev_cdc_start();
+#endif
     return ESP_OK;
 }
 
@@ -178,8 +300,8 @@ void cardmic_usb_stop(void)
         .target = USB_PHY_TARGET_INT,
         .otg_mode = USB_OTG_MODE_DEVICE,
     };
-    usb_phy_handle_t phy = NULL;
-    if (usb_new_phy(&jtag, &phy) != ESP_OK) {
+    if (usb_new_phy(&jtag, &s_jtag_phy) != ESP_OK) {
+        s_jtag_phy = NULL;
         ESP_LOGW(TAG, "could not restore USB-Serial-JTAG");
     }
 }

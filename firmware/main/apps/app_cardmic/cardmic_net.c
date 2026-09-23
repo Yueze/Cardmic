@@ -20,7 +20,6 @@
 #include "lwip/sockets.h"
 #ifdef CARDMIC_DEV_TOOLS
 #include <stdio.h>
-#include "cardmic_usb.h"
 #include "esp_system.h"
 #include "soc/rtc_cntl_reg.h"
 #endif
@@ -106,13 +105,14 @@ static void dev_command(const char *cmd, int sock, const struct sockaddr_in *fro
         sendto(sock, s_dev_code, strlen(s_dev_code), 0, (const struct sockaddr *)from, sizeof(*from));
         return;
     }
+    // Never tear USB down here: this task runs on USB (the app's serial
+    // console) or beside it, and uninstalling TinyUSB from it deadlocks both
+    // channels. The reset reinitialises USB anyway.
     if (strcmp(cmd, "CARDMIC_DEV_DOWNLOAD") == 0) {
         ESP_LOGW(TAG, "dev: rebooting into download mode");
-        cardmic_usb_stop();  // hand the PHY back to USB-Serial-JTAG first
         REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
         esp_restart();
     } else if (strcmp(cmd, "CARDMIC_DEV_RESTART") == 0) {
-        cardmic_usb_stop();
         esp_restart();
     } else if (strncmp(cmd, "CARDMIC_DEV_KEY ", 16) == 0 && s_dev_keys) {
         unsigned code = 0, down = 0;
@@ -248,8 +248,13 @@ static void net_task(void *arg)
         }
 #endif
         bool session_encrypted = false;
-        // Screenshots show whatever is on screen; not while pairing is on.
-        if (!pair_required && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
+        // Screenshots show whatever is on screen; not while pairing is on. Say
+        // so rather than staying silent, which reads as "device offline".
+        if (pair_required && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
+            memcmp(buf, SCREENSHOT, sizeof(SCREENSHOT) - 1) == 0) {
+            static const char denied[] = "CARDMIC_PAIRING_REQUIRED";
+            sendto(sock, denied, sizeof(denied) - 1, 0, (struct sockaddr *)&from, sizeof(from));
+        } else if (!pair_required && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
             memcmp(buf, SCREENSHOT, sizeof(SCREENSHOT) - 1) == 0 && !s_shot_wanted) {
             // "CARDMIC_SCREENSHOT" or "CARDMIC_SCREENSHOT <page>"; served by the UI task.
             buf[n] = '\0';

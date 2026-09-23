@@ -162,7 +162,8 @@ const struct {
     {"CTRL+WIN", 0x01 | 0x08, 0},  // Windows: Wispr Flow's default
     {"F13", 0, 0x68},              // bind it to anything in your dictation app
 };
-int s_talk_key     = TALK_OFF;
+int s_talk_key     = TALK_OFF;  // setting
+int s_talk_active  = TALK_OFF;  // what USB enumerated with, this session
 bool s_talk_down   = false;
 bool s_usb_ok      = false;
 bool s_audio_ok    = false;
@@ -500,8 +501,8 @@ void talk(bool down)
 {
     if (down == s_talk_down) return;
     s_talk_down = down;
-    if (s_talk_key != TALK_OFF) {
-        cardmic_usb_talk_key(TALK_KEYS[s_talk_key].modifiers, TALK_KEYS[s_talk_key].keycode, down);
+    if (s_talk_active != TALK_OFF) {
+        cardmic_usb_talk_key(TALK_KEYS[s_talk_active].modifiers, TALK_KEYS[s_talk_active].keycode, down);
     }
 }
 
@@ -518,16 +519,10 @@ void stop_audio()
     for (int i = 0; i < 50 && s_audio_task; ++i) vTaskDelay(pdMS_TO_TICKS(10));
 }
 
-// Re-enumerate USB, with or without the talk-key keyboard. The audio task
-// writes to USB, so it is paused around the switch.
-void restart_usb()
-{
-    talk(false);
-    stop_audio();
-    cardmic_usb_stop();
-    s_usb_ok = cardmic_usb_start(s_talk_key != TALK_OFF) == ESP_OK;
-    start_audio();
-}
+// Changing the talk key changes which USB device this is (microphone, or
+// microphone + keyboard), so it is applied when the app opens. Tearing
+// TinyUSB down and back up inside a running app is not reliable: the teardown
+// is asynchronous and the immediate reinstall crashed the app on hardware.
 
 void pair_apply_task(void*)
 {
@@ -584,7 +579,6 @@ void open_setting(int item)
         case SET_TALK:
             s_talk_key = (s_talk_key + 1) % TALK_COUNT;
             GetHAL().getSettings().SetString("cardmic_talkkey", std::to_string(s_talk_key));
-            restart_usb();
             break;
         case SET_MUTE:
             s_device_muted = !s_device_muted;
@@ -1154,7 +1148,9 @@ void draw_settings()
         {"Wi-Fi", ssid, wcol},
         {"Info", ip.empty() ? "--" : ip, C_DIM},
         {"Pairing", s_pair_required ? "ON" : "OFF", s_pair_required ? C_ACCENT : C_DIM},
-        {"Talk key", TALK_KEYS[s_talk_key].name, s_talk_key != TALK_OFF ? C_CYAN : C_DIM},
+        {"Talk key", TALK_KEYS[s_talk_key].name, s_talk_key != s_talk_active ? C_WARN
+                                                 : s_talk_key != TALK_OFF   ? C_CYAN
+                                                                            : C_DIM},
         {"Mute", s_device_muted ? "ON" : "OFF", s_device_muted ? C_MUTE : C_DIM},
         {"Mic gain", GAIN_NAME[s_gain_idx], C_TEXT},
         {"About", std::string("v") + version(), C_DIM},
@@ -1165,7 +1161,13 @@ void draw_settings()
         int i = first + r;
         setting_row(15 + r * 16, i, i == s_set_sel, rows[i].label, rows[i].value, rows[i].col);
     }
-    hint_row({{";.", "MOVE"}, {"ENT", "OPEN"}, {"G0", "BACK"}});
+    // Only while the talk-key row is selected, so it cannot be read as a note
+    // about Wi-Fi or any other row.
+    if (s_talk_key != s_talk_active && s_set_sel == SET_TALK) {
+        text(&fonts::Font0, C_WARN, 2, 98, "TALK KEY APPLIES WHEN YOU REOPEN CARDMIC");
+    } else {
+        hint_row({{";.", "MOVE"}, {"ENT", "OPEN"}, {"G0", "BACK"}});
+    }
 }
 
 void kv(int y, const char* k, const std::string& v, uint32_t vcol = C_TEXT)
@@ -1489,7 +1491,8 @@ void AppCardmic::onOpen()
     s_talk_down   = false;
 
     // USB: fails if the stock USB keyboard already owns TinyUSB this boot.
-    s_usb_ok = cardmic_usb_start(s_talk_key != TALK_OFF) == ESP_OK;
+    s_talk_active = s_talk_key;
+    s_usb_ok      = cardmic_usb_start(s_talk_active != TALK_OFF) == ESP_OK;
 
     s_audio_ok = audio_ok;
     start_audio();

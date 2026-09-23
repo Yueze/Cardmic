@@ -11,6 +11,10 @@
 #include <hal.h>
 #include <esp_ota_ops.h>
 
+#ifdef CARDMIC_DEV_TOOLS
+#include <apps/dev_console.h>
+#endif
+
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
 
@@ -63,6 +67,10 @@ extern "C" void app_main(void)
     // Reaching this point means an OTA image boots; keep it (else the
     // bootloader rolls back to the previous slot on the next reset).
     esp_ota_mark_app_valid_cancel_rollback();
+
+#ifdef CARDMIC_DEV_TOOLS
+    cardmic_dev_console_start();  // development builds only; see dev_console.cpp
+#endif
 
     if (!GetHAL().isKeyboardReady()) {
         keyboard_missing_notice();

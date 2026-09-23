@@ -49,9 +49,34 @@ bool Keyboard::init()
     return true;
 }
 
+#ifdef CARDMIC_DEV_TOOLS
+void Keyboard::injectKey(uint8_t row, uint8_t col, bool state)
+{
+    if (!_injected) {
+        _injected = xQueueCreate(16, sizeof(KeyEventRaw_t));
+        if (!_injected) return;
+    }
+    KeyEventRaw_t key;
+    key.row   = row;
+    key.col   = col;
+    key.state = state;
+    xQueueSend(_injected, &key, 0);
+}
+#endif
+
 void Keyboard::update()
 {
     clearKeyEvent();
+
+#ifdef CARDMIC_DEV_TOOLS
+    if (_injected) {
+        KeyEventRaw_t injected;
+        if (xQueueReceive(_injected, &injected, 0) == pdTRUE) {
+            emit_raw(injected);
+            return;
+        }
+    }
+#endif
 
     if (_matrix) {
         matrix_update();

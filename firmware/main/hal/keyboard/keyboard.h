@@ -5,6 +5,8 @@
  */
 #pragma once
 #include "keymap.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "../utils/adafruit_tca8418/Adafruit_TCA8418.h"
 #include <mooncake_log_signal.h>
 
@@ -37,6 +39,12 @@ public:
         return _matrix;
     }
     void update();
+#ifdef CARDMIC_DEV_TOOLS
+    // Development builds only: feed a key event as if it had been typed, so
+    // the device can be driven without hands. Safe from any task; the event is
+    // emitted from update(), on the UI task, exactly like a real key.
+    void injectKey(uint8_t row, uint8_t col, bool state);
+#endif
     inline uint8_t getModifierMask()
     {
         return _modifier_mask;
@@ -69,6 +77,9 @@ private:
     uint64_t _matrix_stable  = 0;  // debounced state
     uint32_t _matrix_scan_at = 0;
     uint64_t _matrix_reported = 0;  // state already turned into events
+#ifdef CARDMIC_DEV_TOOLS
+    QueueHandle_t _injected = nullptr;
+#endif
     uint64_t matrix_scan();
     void matrix_update();
     void emit_raw(KeyEventRaw_t key);

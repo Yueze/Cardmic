@@ -24,8 +24,10 @@ use std::time::Duration;
 const START_TARGET: Duration = Duration::from_millis(80);
 /// Added to the target after each underrun.
 const TARGET_STEP: Duration = Duration::from_millis(40);
-/// The target never grows past this, so latency stays usable for calls.
-const MAX_TARGET: Duration = Duration::from_millis(240);
+/// The target never grows past this, so latency stays usable for calls. A
+/// busy venue Wi-Fi measured 83-200 ms round trips and still underran at
+/// 240 ms, so the ceiling leaves room for that.
+const MAX_TARGET: Duration = Duration::from_millis(400);
 /// Audio beyond `target + HEADROOM` is trimmed back to `target`. The device
 /// and host clocks drift apart (tens of ppm), so without a cap latency would
 /// creep up for as long as the session runs. Trimming to the target, not
