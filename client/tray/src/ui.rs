@@ -33,6 +33,8 @@ pub enum Command {
     Drag,
     /// A script error on the page, for the log.
     Log(String),
+    CheckForUpdates,
+    InstallUpdate,
 }
 
 impl Command {
@@ -50,6 +52,8 @@ impl Command {
             "copy" => Command::Copy(arg.to_string()),
             "drag" => Command::Drag,
             "log" => Command::Log(arg.to_string()),
+            "update_check" => Command::CheckForUpdates,
+            "update_install" => Command::InstallUpdate,
             _ => return None,
         })
     }

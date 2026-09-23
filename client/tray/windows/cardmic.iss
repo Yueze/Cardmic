@@ -38,6 +38,8 @@ Name: "{autoprograms}\Cardmic"; Filename: "{app}\Cardmic.exe"
 
 [Run]
 Filename: "{app}\Cardmic.exe"; Description: "Start Cardmic"; Flags: nowait postinstall skipifsilent
+; A silent install is the app updating itself: start it again.
+Filename: "{app}\Cardmic.exe"; Parameters: "--updated"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM Cardmic.exe"; Flags: runhidden; RunOnceId: "StopCardmic"

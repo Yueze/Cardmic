@@ -47,6 +47,10 @@ it in view. Opening Cardmic again from the Start menu shows its menu.
 
 Cardmic starts with Windows; the menu has a switch to turn that off.
 
+Cardmic keeps itself up to date: it checks for a new version now and then,
+downloads it in the background and installs it when nothing is in use (or
+when you click **Restart to update** at the bottom of its window).
+
 ### 4. Pair it (recommended)
 
 1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on, and note

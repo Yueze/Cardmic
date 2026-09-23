@@ -14,6 +14,11 @@ name = "cardmic-app"
 path = "src/main.rs"
 
 [dependencies]
+# Self-update from GitHub Releases, like the firmware: HTTPS, the manifest,
+# and a SHA-256 check of what was downloaded.
+serde_json = "1"
+sha2 = "0.11"
+ureq = "3"
 cardmic-core.workspace = true
 cardmic-audio.workspace = true
 cardmic-engine.workspace = true

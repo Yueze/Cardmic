@@ -41,6 +41,10 @@
   meter, live readouts, and Mac controls. `Cardmic-macOS.dmg`,
   `Cardmic-Windows-Setup.exe`. The `cardmic` command stays, built on the
   same engine.
+- **The app updates itself.** It checks GitHub Releases like the device
+  does, downloads a new version in the background (checksum, and code
+  signature on macOS), and installs and restarts when nothing is in use, or
+  when you click Restart to update.
 - **Pair by plugging in.** Connect the Cardputer over USB once with pairing
   on, and the app takes the code itself; Wi-Fi then works, encrypted. A
   Cardputer with pairing on also tells a computer that lacks the code, so

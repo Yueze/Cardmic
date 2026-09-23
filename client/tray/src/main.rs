@@ -18,6 +18,8 @@ mod settings;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod ui;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+mod update;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod usb;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

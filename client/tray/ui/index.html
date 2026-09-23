@@ -125,6 +125,7 @@
   #pairErr.show { display: block; }
 
   footer { height: 34px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 12px 0 16px; }
+  #updText { color: var(--legend); font-size: 11px; }
   footer .grow { flex: 1; }
   .hidden { display: none !important; }
 </style>
@@ -196,9 +197,10 @@
 </main>
 
 <footer>
+  <span id="updText"></span>
   <span class="grow"></span>
   <button class="link" id="help">Help</button>
-  <button class="link" id="updates">Updates</button>
+  <button class="link" id="updates">Check for updates</button>
 </footer>
 
 <script>
@@ -389,6 +391,7 @@
 
   // ------------------------------------------------------------ state → view
 
+  let updateReady = false;
   let userTouched = -1e9;       // when the user last flipped a switch: that wins over stale state for a moment
   let editing = false, copiedUntil = 0;
   const FIX = {
@@ -494,6 +497,18 @@
     $("pairButtons").classList.toggle("hidden", editing);
 
     put($("loginLabel"), "text", s.platform === "win" ? "Start with Windows" : "Open at login");
+
+    // Updates: the app checks by itself; this says where it stands.
+    const u = (s.update || "").split(" ");
+    updateReady = u[0] === "ready";
+    put($("updText"), "text",
+      u[0] === "checking" ? "Checking for updates…"
+      : u[0] === "current" ? `Up to date (v${s.version})`
+      : u[0] === "downloading" ? `Downloading ${u[1]}, ${u[2]}%`
+      : u[0] === "ready" ? `Version ${u[1]} is ready`
+      : u[0] === "failed" ? "Could not check for updates" : "");
+    put($("updates"), "text", updateReady ? "Restart to update" : "Check for updates");
+    put($("updates"), "class", updateReady ? "primary" : "link");
   }
 
   // ------------------------------------------------------------ controls
@@ -537,7 +552,7 @@
   });
   $("fixBtn").addEventListener("click", () => fixAction && fixAction());
   $("help").addEventListener("click", () => send("open", "help"));
-  $("updates").addEventListener("click", () => send("open", "updates"));
+  $("updates").addEventListener("click", () => send(updateReady ? "update_install" : "update_check"));
   // Drag the window by its title bar (it is part of the page).
   $("bar").addEventListener("mousedown", (e) => { if (e.button === 0 && !e.target.closest("button, input, select, label")) send("drag"); });
   document.addEventListener("contextmenu", (e) => { if (!e.target.closest("input")) e.preventDefault(); });

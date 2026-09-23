@@ -52,6 +52,10 @@ one that works. It never records your real microphones.
 Cardmic opens at login (System Settings > General > Login Items); the menu
 has a switch to turn that off.
 
+Cardmic keeps itself up to date: it checks for a new version now and then,
+downloads it in the background and installs it when nothing is in use (or
+when you click **Restart to update** at the bottom of its window).
+
 ### 4. Pair it (recommended)
 
 Out of the box, anyone on the same Wi-Fi who runs Cardmic first could receive

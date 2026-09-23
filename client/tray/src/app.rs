@@ -4,6 +4,7 @@ use crate::devices::{self, Devices};
 use crate::platform::{self, MicAccess};
 use crate::settings::Settings;
 use crate::ui::{Command, Json, Ui};
+use crate::update::{self, Updater};
 use crate::usb::UsbMonitor;
 use cardmic_audio::Candidate;
 use cardmic_core::pairing::normalize_code;
@@ -124,6 +125,11 @@ struct App {
     /// This computer has a pairing code (cached; read on start and change).
     paired: bool,
     ui: Option<Ui>,
+    updater: Updater,
+    next_update_check: Instant,
+    /// Since when nothing has been in use (no Wi-Fi link, nothing plugged
+    /// in): a downloaded update installs itself after a while of that.
+    idle_since: Option<Instant>,
     /// When this computer last took the pairing code over USB.
     paired_over_usb: Option<Instant>,
     /// The Cardputer's name, remembered from USB for when it is on Wi-Fi.
@@ -386,6 +392,9 @@ impl App {
             first_launch,
             paired: pairing_store::load().is_some(),
             ui,
+            updater: Updater::new(),
+            next_update_check: Instant::now() + Duration::from_secs(30),
+            idle_since: None,
             paired_over_usb: None,
             device_name: None,
             usb: None,
@@ -400,8 +409,14 @@ impl App {
             app.start();
         }
         app.refresh();
-        // Opened by the user (not at login): show the window.
-        if !first_launch && !platform::launched_at_login() {
+        // Opened by the user (not at login, not restarted by an update that
+        // found the window closed): show the window.
+        let updated = std::env::args().any(|a| a == "--updated");
+        let reopen = std::env::args().any(|a| a == "--show");
+        if updated {
+            log(&format!("now running {VERSION}"));
+        }
+        if (updated && reopen) || (!updated && !first_launch && !platform::launched_at_login()) {
             app.show_window();
         }
         app
@@ -630,7 +645,12 @@ impl App {
         } else if id == *it.help.id() {
             platform::open_url(HELP);
         } else if id == *it.updates.id() {
-            platform::open_url(RELEASES);
+            if matches!(self.updater.state(), update::State::Ready { .. }) {
+                self.install_update();
+            } else {
+                self.check_for_updates();
+                self.show_window();
+            }
         }
         false
     }
@@ -731,6 +751,8 @@ impl App {
             Command::Retry => self.set_wifi(true),
             Command::Copy(text) => platform::copy_text(&text),
             Command::Log(msg) => log(&format!("window: {msg}")),
+            Command::CheckForUpdates => self.check_for_updates(),
+            Command::InstallUpdate => self.install_update(),
             Command::Drag => {
                 if let Some(ui) = &self.ui {
                     let _ = ui.window.drag_window();
@@ -846,7 +868,49 @@ impl App {
             .bool("paired_over_usb", self.paired_over_usb.is_some_and(|t| t.elapsed() < Duration::from_secs(8)))
             .opt("device_name", self.devices.usb_identity.as_ref().map(|i| i.name.as_str()).or(self.device_name.as_deref()))
             .str("install_name", output::install_hint().0)
+            .str("update", &match self.updater.state() {
+                update::State::Idle => String::new(),
+                update::State::Checking => "checking".into(),
+                update::State::UpToDate => "current".into(),
+                update::State::Downloading { version, percent } => format!("downloading {version} {percent}"),
+                update::State::Ready { version } => format!("ready {version}"),
+                update::State::Failed(e) => format!("failed {e}"),
+            })
             .build()
+    }
+
+    /// Check every 6 hours; install a downloaded update by itself once
+    /// nothing has been in use for two minutes.
+    fn tick_updates(&mut self) {
+        let now = Instant::now();
+        if now >= self.next_update_check {
+            self.next_update_check = now + Duration::from_secs(6 * 3600);
+            self.check_for_updates();
+        }
+        let in_use = self.wifi_connected() || self.devices.usb_mic.is_some();
+        self.idle_since = if in_use { None } else { Some(self.idle_since.unwrap_or(now)) };
+        let idle_long = self.idle_since.is_some_and(|t| t.elapsed() > Duration::from_secs(120));
+        if idle_long && matches!(self.updater.state(), update::State::Ready { .. }) {
+            self.install_update();
+        }
+    }
+
+    fn check_for_updates(&self) {
+        let proxy = self.proxy.clone();
+        self.updater.check(move || {
+            let _ = proxy.send_event(UserEvent::Engine);
+        });
+    }
+
+    fn install_update(&mut self) {
+        let show = self.ui.as_ref().is_some_and(|u| u.visible());
+        match self.updater.install(show) {
+            Ok(()) => {
+                self.stop();
+                std::process::exit(0);
+            }
+            Err(e) => log(&format!("update not installed: {e}")),
+        }
     }
 
     /// Open or close the USB monitor to match: window open, Cardputer
@@ -896,6 +960,7 @@ impl App {
 
     fn tick(&mut self) {
         self.sync_usb();
+        self.tick_updates();
         if self.retry_at.is_some_and(|t| Instant::now() >= t) && self.settings.wifi {
             if matches!(self.wifi, Wifi::MicDenied) && platform::mic_access() != MicAccess::Granted {
                 // Still off: look again in a moment, quietly.
@@ -951,6 +1016,14 @@ impl App {
             self.texts = Default::default();
         }
 
+        let updates_text = match self.updater.state() {
+            update::State::Ready { version } => format!("Restart to Update to {version}"),
+            update::State::Downloading { version, percent } => format!("Downloading {version} ({percent}%)…"),
+            _ => format!("Version {VERSION} · Check for Updates…"),
+        };
+        if updates_text != self.items.updates.text() {
+            self.items.updates.set_text(&updates_text);
+        }
         let texts = self.describe(status.as_ref());
         if texts.0 != self.texts.0 {
             self.items.status.set_text(&texts.0);

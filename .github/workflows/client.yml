@@ -48,17 +48,21 @@ jobs:
             target/x86_64-apple-darwin/release/cardmic
           tar czf cardmic-macos-universal.tar.gz cardmic
           cp target/macos/Cardmic.dmg Cardmic-macOS.dmg
+          # What the app downloads to update itself.
+          ditto -c -k --keepParent target/macos/Cardmic.app Cardmic-macOS.zip
       - uses: actions/upload-artifact@v4
         with:
           name: cardmic-macos
           path: |
             client/Cardmic-macOS.dmg
+            client/Cardmic-macOS.zip
             client/cardmic-macos-universal.tar.gz
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             client/Cardmic-macOS.dmg
+            client/Cardmic-macOS.zip
             client/cardmic-macos-universal.tar.gz
 
   release-windows:
@@ -92,3 +96,32 @@ jobs:
           files: |
             client/Cardmic-Windows-Setup.exe
             client/cardmic-windows-x64.zip
+
+  # The manifest the app checks for updates: the newest version and, per
+  # system, where to download it and its SHA-256.
+  update-manifest:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release-macos, release-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: cardmic-app-update.json
+        working-directory: dist
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          mac_sha=$(sha256sum Cardmic-macOS.zip | cut -d' ' -f1)
+          win_sha=$(sha256sum Cardmic-Windows-Setup.exe | cut -d' ' -f1)
+          cat > cardmic-app-update.json <<JSON
+          {"version": "${tag#v}",
+           "macos": {"url": "${base}/Cardmic-macOS.zip", "sha256": "${mac_sha}", "size": $(stat -c%s Cardmic-macOS.zip)},
+           "windows": {"url": "${base}/Cardmic-Windows-Setup.exe", "sha256": "${win_sha}", "size": $(stat -c%s Cardmic-Windows-Setup.exe)}}
+          JSON
+          cat cardmic-app-update.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/cardmic-app-update.json
+
