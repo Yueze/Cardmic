@@ -32,6 +32,7 @@
 #include <driver/i2s_std.h>
 #include <esp_app_desc.h>
 #include <esp_netif.h>
+#include <esp_timer.h>
 #include <esp_ota_ops.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
@@ -93,6 +94,10 @@ constexpr int32_t GAIN_MULT[] = {1, 2, 4};  // LOW / MID / HIGH (MID = tuned def
 // (M5Unified's default "magnification" for PDM mics). Not yet tuned on hardware.
 constexpr int32_t PDM_BASE_GAIN = 16;
 int32_t s_base_gain           = 1;
+// Samples actually captured per second. 16000 unless the microphone clock is
+// wrong: too high and the receiver's buffer grows until it drops audio, too
+// low and it starves. Shown in Settings > Info so a bug report can say so.
+volatile float s_capture_rate = 0.0f;
 const char* const GAIN_NAME[] = {"LOW", "MID", "HIGH"};
 
 enum class WifiState { NotConfigured, Connecting, Connected, Failed };
@@ -281,6 +286,11 @@ bool pdm_mic_start()
     // M5Unified reads this microphone from the right slot (its default
     // input_only_right, not overridden for the Cardputer); the IDF default is left.
     pdm_cfg.slot_cfg.slot_mask = I2S_PDM_SLOT_RIGHT;
+    // Decimate by 128 rather than 64, which clocks the microphone at 2.048 MHz
+    // instead of 1.024 MHz. The SPM1423 is specified from 1.0 MHz, so the
+    // default sits right on its lower limit; M5Unified clocks it at 2.048 MHz.
+    // The PCM rate stays 16 kHz either way (the driver halves the divider).
+    pdm_cfg.clk_cfg.dn_sample_mode = I2S_PDM_DSR_16S;
     if (i2s_channel_init_pdm_rx_mode(s_rx, &pdm_cfg) != ESP_OK || i2s_channel_enable(s_rx) != ESP_OK) {
         i2s_del_channel(s_rx);
         s_rx = nullptr;
@@ -305,7 +315,10 @@ void audio_task(void*)
     Biquad hpf[2];
     hpf[0].highpass(MIC_HPF_HZ, (float)CARDMIC_SAMPLE_RATE_HZ);
     hpf[1].highpass(MIC_HPF_HZ, (float)CARDMIC_SAMPLE_RATE_HZ);
-    uint16_t envelope = 0;
+    uint16_t envelope    = 0;
+    uint32_t counted     = 0;
+    int64_t counted_from = esp_timer_get_time();
+    s_capture_rate       = 0.0f;
 
     while (s_audio_run) {
         size_t got = 0;
@@ -322,6 +335,14 @@ void audio_task(void*)
             frame[i]  = (int16_t)s;
             peak      = std::max<uint16_t>(peak, (uint16_t)(s < 0 ? -s : s));
         }
+        counted += CARDMIC_SAMPLES_PER_MS;
+        const int64_t now_us = esp_timer_get_time();
+        if (now_us - counted_from >= 1000000) {
+            s_capture_rate = counted * 1000000.0f / (float)(now_us - counted_from);
+            counted        = 0;
+            counted_from   = now_us;
+        }
+
         uint32_t w = s_ring_w;
         for (int i = 0; i < CARDMIC_SAMPLES_PER_MS; ++i) s_ring[(w + i) % RING] = frame[i];
         s_ring_w = w + CARDMIC_SAMPLES_PER_MS;
@@ -1173,7 +1194,13 @@ void draw_netinfo()
     kv(30, "SIGNAL", rssi);
     kv(44, "DEVICE", ip.empty() ? "--" : ip, ip.empty() ? C_DIM : C_ACCENT);
     kv(58, "RECEIVER", rx, cardmic_net_receiver_active() ? C_ACCENT : C_DIM);
-    kv(72, "PORT", "UDP 41234");
+    char rate[16];
+    const float hz = s_capture_rate;
+    snprintf(rate, sizeof(rate), hz > 0.0f ? "%.0f Hz" : "--", hz);
+    // Off by more than 1 % means the microphone clock is wrong, which shows up
+    // as growing delay (too fast) or gaps (too slow).
+    const bool rate_ok = hz > CARDMIC_SAMPLE_RATE_HZ * 0.99f && hz < CARDMIC_SAMPLE_RATE_HZ * 1.01f;
+    kv(72, "MIC", rate, hz <= 0.0f ? C_DIM : rate_ok ? C_ACCENT : C_WARN);
     kv(86, "AUDIO", s_pair_required ? "ENCRYPTED" : "OPEN (NO PAIRING)", s_pair_required ? C_ACCENT : C_WARN);
     hint_row({{"G0", "BACK"}});
 }
