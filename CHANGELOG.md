@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 — 2026-09-23
 
 - **Pairing page, reworded.** It names both ways to pair as the app does:
   plug in once, or type the code in Cardmic > Pairing > Enter code.
