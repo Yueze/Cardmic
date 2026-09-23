@@ -15,6 +15,8 @@ mod devices;
 mod platform;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod settings;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod ui;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn main() {

@@ -24,20 +24,6 @@ mod imp {
     use std::process::Command;
     use tray_icon::menu::ContextMenu;
 
-    /// Ask for the pairing code. `None` if cancelled.
-    pub fn ask_code(message: &str) -> Option<String> {
-        let script = format!(
-            "text returned of (display dialog \"{}\" default answer \"\" with title \"Pair with Cardputer\" \
-             buttons {{\"Cancel\", \"Pair\"}} default button \"Pair\" cancel button \"Cancel\" with icon note)",
-            escape(message)
-        );
-        let out = Command::new("osascript").args(["-e", &script]).output().ok()?;
-        if !out.status.success() {
-            return None;
-        }
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    }
-
     pub fn alert(title: &str, message: &str) {
         let script = format!(
             "display alert \"{}\" message \"{}\" as informational buttons {{\"OK\"}} default button \"OK\"",
@@ -53,6 +39,22 @@ mod imp {
 
     pub fn open_url(url: &str) {
         let _ = Command::new("open").arg(url).spawn();
+    }
+
+    pub fn copy_text(text: &str) {
+        use std::io::Write;
+        if let Ok(mut child) = Command::new("pbcopy").stdin(std::process::Stdio::piped()).spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+        }
+    }
+
+    /// Started by the login item rather than by the user. macOS does not
+    /// say, so: within a few minutes of the system starting.
+    pub fn launched_at_login() -> bool {
+        objc2_foundation::NSProcessInfo::processInfo().systemUptime() < 180.0
     }
 
     pub fn open_sound_settings() {
@@ -144,6 +146,21 @@ mod imp {
         }
     }
 
+    /// Where the menu bar icon first appears. macOS keeps each app's icon
+    /// position as a distance from the right edge of the screen, and puts new
+    /// icons at the far left, which on a full menu bar is behind the camera
+    /// notch. Start at the right end of the app icons instead. Only when no
+    /// position is stored: once the user drags the icon (with Command), that
+    /// place is kept.
+    pub fn place_icon_near_the_right() {
+        use objc2_foundation::{NSString, NSUserDefaults};
+        let defaults = NSUserDefaults::standardUserDefaults();
+        let key = NSString::from_str("NSStatusItem Preferred Position Item-0");
+        if defaults.objectForKey(&key).is_none() {
+            defaults.setDouble_forKey(200.0, &key);
+        }
+    }
+
     /// False when macOS has no room for the icon (a full menu bar, or the
     /// camera notch): it is then created but never drawn.
     pub fn icon_visible(tray: &tray_icon::TrayIcon) -> bool {
@@ -194,11 +211,7 @@ mod imp {
     use std::ffi::c_void;
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::*;
-    use windows_sys::Win32::Graphics::Gdi::*;
-    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Registry::*;
-    use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
@@ -235,6 +248,35 @@ mod imp {
 
     pub fn migrate_login_item() {}
 
+    pub fn launched_at_login() -> bool {
+        std::env::args().any(|a| a == "--background")
+    }
+
+    pub fn copy_text(text: &str) {
+        use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+        use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+        const CF_UNICODETEXT: u32 = 13;
+        let data = wide(text);
+        unsafe {
+            if OpenClipboard(null_mut()) == 0 {
+                return;
+            }
+            EmptyClipboard();
+            let mem = GlobalAlloc(GMEM_MOVEABLE, data.len() * 2);
+            if !mem.is_null() {
+                let dst = GlobalLock(mem) as *mut u16;
+                if !dst.is_null() {
+                    std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+                    GlobalUnlock(mem);
+                    SetClipboardData(CF_UNICODETEXT, mem); // the clipboard owns it now
+                }
+            }
+            CloseClipboard();
+        }
+    }
+
+    pub fn place_icon_near_the_right() {}
+
     pub const PRIVACY_URL: &str = "ms-settings:privacy-microphone";
 
     pub fn mic_access() -> super::MicAccess {
@@ -260,7 +302,8 @@ mod imp {
         let rc = unsafe {
             if enable {
                 let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-                let data = wide(&format!("\"{}\"", exe.display()));
+                // --background: started at sign-in, so do not open the window.
+                let data = wide(&format!("\"{}\" --background", exe.display()));
                 RegSetKeyValueW(
                     HKEY_CURRENT_USER,
                     key.as_ptr(),
@@ -280,151 +323,6 @@ mod imp {
             Ok(())
         } else {
             Err(format!("registry error {rc}"))
-        }
-    }
-
-    // ---- a small modal text prompt; Win32 has no built-in one ----
-
-    const ID_EDIT: i32 = 100;
-
-    struct Prompt {
-        edit: HWND,
-        result: Option<String>,
-        done: bool,
-    }
-
-    /// Ask for the pairing code. `None` if cancelled.
-    pub fn ask_code(message: &str) -> Option<String> {
-        unsafe {
-            let hinst = GetModuleHandleW(null());
-            let class = wide("CardmicPrompt");
-            let wc = WNDCLASSW {
-                style: 0,
-                lpfnWndProc: Some(prompt_proc),
-                cbClsExtra: 0,
-                cbWndExtra: 0,
-                hInstance: hinst,
-                hIcon: LoadIconW(hinst, 1 as *const u16),
-                hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-                hbrBackground: (COLOR_WINDOW + 1) as usize as HBRUSH,
-                lpszMenuName: null(),
-                lpszClassName: class.as_ptr(),
-            };
-            RegisterClassW(&wc); // fails harmlessly if already registered
-
-            let scale = |v: i32| v * GetDpiForSystem() as i32 / 96;
-            let (w, h) = (scale(420), scale(170));
-            let x = (GetSystemMetrics(SM_CXSCREEN) - w) / 2;
-            let y = (GetSystemMetrics(SM_CYSCREEN) - h) / 3;
-            // Shared with prompt_proc through GWLP_USERDATA; only ever touched
-            // through this pointer, and freed after the window is gone.
-            let state = Box::into_raw(Box::new(Prompt { edit: null_mut(), result: None, done: false }));
-            let title = wide("Pair with Cardputer");
-            let hwnd = CreateWindowExW(
-                WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
-                class.as_ptr(),
-                title.as_ptr(),
-                WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                x,
-                y,
-                w,
-                h,
-                null_mut(),
-                null_mut(),
-                hinst,
-                state as *const c_void,
-            );
-            if hwnd.is_null() {
-                drop(Box::from_raw(state));
-                return None;
-            }
-
-            let mut ncm: NONCLIENTMETRICSW = std::mem::zeroed();
-            ncm.cbSize = std::mem::size_of::<NONCLIENTMETRICSW>() as u32;
-            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &mut ncm as *mut _ as *mut c_void, 0);
-            let font = CreateFontIndirectW(&ncm.lfMessageFont);
-
-            let child = |class: &str, text: &str, style: u32, ex: u32, x: i32, y: i32, w: i32, h: i32, id: i32| {
-                let c = wide(class);
-                let t = wide(text);
-                let hw = CreateWindowExW(
-                    ex,
-                    c.as_ptr(),
-                    t.as_ptr(),
-                    WS_CHILD | WS_VISIBLE | style,
-                    scale(x),
-                    scale(y),
-                    scale(w),
-                    scale(h),
-                    hwnd,
-                    id as usize as HMENU,
-                    hinst,
-                    null(),
-                );
-                SendMessageW(hw, WM_SETFONT, font as WPARAM, 1);
-                hw
-            };
-            child("STATIC", message, 0, 0, 16, 14, 380, 36, 0);
-            (*state).edit = child(
-                "EDIT",
-                "",
-                WS_TABSTOP | ES_UPPERCASE as u32 | ES_AUTOHSCROLL as u32,
-                WS_EX_CLIENTEDGE,
-                16,
-                54,
-                372,
-                24,
-                ID_EDIT,
-            );
-            child("BUTTON", "Pair", WS_TABSTOP | BS_DEFPUSHBUTTON as u32, 0, 212, 92, 84, 26, IDOK);
-            child("BUTTON", "Cancel", WS_TABSTOP | BS_PUSHBUTTON as u32, 0, 304, 92, 84, 26, IDCANCEL);
-
-            SetForegroundWindow(hwnd);
-            SetFocus((*state).edit);
-            let mut msg: MSG = std::mem::zeroed();
-            while !(*state).done && GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
-                if IsDialogMessageW(hwnd, &msg) == 0 {
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
-            DeleteObject(font);
-            Box::from_raw(state).result
-        }
-    }
-
-    unsafe extern "system" fn prompt_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-        unsafe {
-            if msg == WM_NCCREATE {
-                let cs = lparam as *const CREATESTRUCTW;
-                SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*cs).lpCreateParams as isize);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
-            }
-            let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Prompt;
-            match msg {
-                WM_COMMAND if !state.is_null() => {
-                    let id = (wparam & 0xffff) as i32;
-                    if id == IDOK {
-                        let mut buf = [0u16; 64];
-                        let n = GetWindowTextW((*state).edit, buf.as_mut_ptr(), buf.len() as i32);
-                        (*state).result = Some(String::from_utf16_lossy(&buf[..n.max(0) as usize]));
-                        (*state).done = true;
-                        DestroyWindow(hwnd);
-                    } else if id == IDCANCEL {
-                        (*state).done = true;
-                        DestroyWindow(hwnd);
-                    }
-                    0
-                }
-                WM_CLOSE => {
-                    if !state.is_null() {
-                        (*state).done = true;
-                    }
-                    DestroyWindow(hwnd);
-                    0
-                }
-                _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-            }
         }
     }
 }

@@ -3,14 +3,15 @@
 use crate::devices::{self, Devices};
 use crate::platform::{self, MicAccess};
 use crate::settings::Settings;
+use crate::ui::{Command, Json, Ui};
 use cardmic_audio::Candidate;
 use cardmic_core::pairing::normalize_code;
 use cardmic_engine::{output, pairing_store, Engine, Link, Options, StartError, Status};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
-use tao::event::{Event, StartCause};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+use tao::event::{Event, StartCause, WindowEvent};
+use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -24,7 +25,8 @@ const HELP: &str = "https://github.com/Yueze/Cardmic/blob/main/docs/windows.md";
 /// Held for the app's lifetime so a second copy can tell one is running,
 /// and ask it to show its menu instead of starting.
 const INSTANCE_PORT: u16 = 41239;
-const TICK: Duration = Duration::from_millis(200);
+/// Also the level meter's frame rate while the window is open.
+const TICK: Duration = Duration::from_millis(100);
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -32,10 +34,14 @@ enum UserEvent {
     Started(u64, Result<Engine, Failure>),
     /// The engine reported something; refresh now rather than at the next tick.
     Engine,
-    Code(Option<String>),
+    /// A command from the window's page.
+    Ui(String),
+    /// A click on the tray icon (Windows: left click opens the window).
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    Tray(tray_icon::TrayIconEvent),
     /// The answer to the microphone permission prompt.
     MicAnswered(bool),
-    /// Cardmic was opened again while running: show the menu.
+    /// Cardmic was opened again while running: show the window.
     Show,
 }
 
@@ -82,6 +88,7 @@ struct Shape {
 }
 
 struct Items {
+    open: MenuItem,
     status: MenuItem,
     hint: MenuItem,
     level: MenuItem,
@@ -112,8 +119,12 @@ struct App {
     wifi: Wifi,
     generation: u64,
     retry_at: Option<Instant>,
-    asking_code: bool,
     first_launch: bool,
+    /// This computer has a pairing code (cached; read on start and change).
+    paired: bool,
+    ui: Option<Ui>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    logged_icon: bool,
     /// The menu currently attached to the icon.
     menu: Menu,
 }
@@ -188,21 +199,35 @@ pub fn run() {
 
     let mut instance = Some(instance);
     let mut app: Option<App> = None;
-    event_loop.run(move |event, _, control_flow| {
+    #[cfg(target_os = "windows")]
+    tray_icon::TrayIconEvent::set_event_handler(Some({
+        let proxy = proxy.clone();
+        move |e| {
+            let _ = proxy.send_event(UserEvent::Tray(e));
+        }
+    }));
+
+    event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + TICK);
         match event {
             // On macOS the tray icon must be created once the loop is running.
             Event::NewEvents(StartCause::Init) => {
                 if let Some(l) = instance.take() {
                     listen_for_reopen(l, proxy.clone());
-                    app = Some(App::new(proxy.clone()));
+                    app = Some(App::new(proxy.clone(), target));
                 }
             }
             // The Dock icon was clicked, or Cardmic opened again from Finder,
-            // Launchpad or Spotlight: show the menu where the user is.
+            // Launchpad or Spotlight.
             Event::Reopen { .. } => {
                 if let Some(a) = app.as_mut() {
-                    a.show_menu(true);
+                    a.show_window();
+                }
+            }
+            // Closing the window keeps Cardmic running.
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+                if let Some(a) = app.as_mut() {
+                    a.hide_window();
                 }
             }
             Event::UserEvent(e) => {
@@ -272,7 +297,7 @@ fn listen_for_reopen(listener: TcpListener, proxy: EventLoopProxy<UserEvent>) {
 }
 
 impl App {
-    fn new(proxy: EventLoopProxy<UserEvent>) -> App {
+    fn new(proxy: EventLoopProxy<UserEvent>, target: &EventLoopWindowTarget<UserEvent>) -> App {
         log(&format!("Cardmic {VERSION} started"));
         platform::migrate_login_item();
         let mut settings = Settings::load();
@@ -292,13 +317,23 @@ impl App {
 
         let items = Items::new();
         let menu = Menu::new();
+        platform::place_icon_near_the_right();
         let tray = TrayIconBuilder::new()
             .with_tooltip("Cardmic")
             .with_icon(icon(Glyph::Idle))
             .with_icon_as_template(cfg!(target_os = "macos"))
             .with_menu(Box::new(menu.clone()))
+            // Windows: left click opens the window, right click the menu.
+            .with_menu_on_left_click(cfg!(target_os = "macos"))
             .build()
             .expect("create the menu bar icon");
+        let ui = match Ui::new(target, proxy.clone(), UserEvent::Ui) {
+            Ok(ui) => Some(ui),
+            Err(e) => {
+                log(&format!("window unavailable: {e}"));
+                None
+            }
+        };
 
         devices::watch({
             let proxy = proxy.clone();
@@ -319,14 +354,20 @@ impl App {
             settings,
             generation: 0,
             retry_at: None,
-            asking_code: false,
             first_launch,
+            paired: pairing_store::load().is_some(),
+            ui,
+            logged_icon: false,
             menu,
         };
         if app.settings.wifi {
             app.start();
         }
         app.refresh();
+        // Opened by the user (not at login): show the window.
+        if !first_launch && !platform::launched_at_login() {
+            app.show_window();
+        }
         app
     }
 
@@ -447,7 +488,26 @@ impl App {
                 }
             }
             UserEvent::Engine => {}
-            UserEvent::Show => self.show_menu(true),
+            UserEvent::Show => self.show_window(),
+            UserEvent::Ui(msg) => {
+                if let Some(cmd) = Command::parse(&msg) {
+                    self.command(cmd);
+                }
+            }
+            UserEvent::Tray(e) => {
+                if let tray_icon::TrayIconEvent::Click {
+                    button: tray_icon::MouseButton::Left,
+                    button_state: tray_icon::MouseButtonState::Up,
+                    ..
+                } = e
+                {
+                    if self.ui.as_ref().is_some_and(|u| u.visible()) {
+                        self.hide_window();
+                    } else {
+                        self.show_window();
+                    }
+                }
+            }
             UserEvent::MicAnswered(granted) => {
                 log(&format!("microphone access answered: {granted}"));
                 if matches!(self.wifi, Wifi::AskingMic) {
@@ -456,28 +516,6 @@ impl App {
                     } else {
                         self.retry_at = Some(Instant::now() + Duration::from_secs(3));
                         self.wifi = Wifi::MicDenied;
-                    }
-                }
-            }
-            UserEvent::Code(code) => {
-                self.asking_code = false;
-                if let Some(text) = code {
-                    match normalize_code(&text) {
-                        Ok(code) => match pairing_store::save(&code) {
-                            Ok(_) => {
-                                if self.settings.wifi {
-                                    self.start();
-                                }
-                            }
-                            Err(e) => platform::alert("Could not save the pairing code", &e),
-                        },
-                        Err(e) => {
-                            platform::alert(
-                                "That is not a pairing code",
-                                &format!("{e}. The code is on the Cardputer in Cardmic > Settings > Pairing, e.g. 7K2M-9QXB-4TPA."),
-                            );
-                            self.ask_code();
-                        }
                     }
                 }
             }
@@ -492,39 +530,22 @@ impl App {
             self.stop();
             return true;
         } else if id == *it.wifi.id() {
-            self.settings.wifi = it.wifi.is_checked();
-            self.settings.save();
-            if self.settings.wifi {
-                self.start();
-            } else {
-                self.stop();
-            }
+            let on = it.wifi.is_checked();
+            self.set_wifi(on);
         } else if id == *it.automatic.id() {
-            self.settings.output_manual = false;
-            self.settings.save();
-            self.shape = None; // re-sync the check marks
-            if self.settings.wifi {
-                self.start();
-            }
+            self.set_output(None);
         } else if let Some((_, name)) = it.outputs.iter().find(|(oid, _)| *oid == id) {
-            self.settings.output = Some(name.clone());
-            self.settings.output_manual = true;
-            self.settings.save();
-            self.shape = None;
-            if self.settings.wifi {
-                self.start();
-            }
+            let name = name.clone();
+            self.set_output(Some(name));
+        } else if id == *it.open.id() {
+            self.show_window();
         } else if id == *it.pair.id() {
-            self.ask_code();
-        } else if id == *it.unpair.id() {
-            match pairing_store::remove() {
-                Ok(_) => {
-                    if self.settings.wifi {
-                        self.start();
-                    }
-                }
-                Err(e) => platform::alert("Could not forget the pairing code", &e),
+            self.show_window();
+            if let Some(ui) = &self.ui {
+                ui.focus_pairing();
             }
+        } else if id == *it.unpair.id() {
+            self.unpair();
         } else if id == *it.install.id() {
             platform::open_url(output::install_hint().1);
         } else if id == *it.privacy.id() {
@@ -537,10 +558,7 @@ impl App {
             platform::open_sound_settings();
         } else if id == *it.login.id() {
             let want = it.login.is_checked();
-            if let Err(e) = platform::set_login_item(want) {
-                it.login.set_checked(!want);
-                platform::alert("Could not change Open at Login", &e);
-            }
+            self.set_login(want);
         } else if id == *it.help.id() {
             platform::open_url(HELP);
         } else if id == *it.updates.id() {
@@ -549,18 +567,177 @@ impl App {
         false
     }
 
-    fn ask_code(&mut self) {
-        if self.asking_code {
-            return;
+    // ------------------------------------------------------------ actions
+    // Shared by the menu and the window.
+
+    fn set_wifi(&mut self, on: bool) {
+        self.settings.wifi = on;
+        self.settings.save();
+        self.shape = None; // re-sync the check mark
+        if on {
+            self.start();
+        } else {
+            self.stop();
         }
-        self.asking_code = true;
-        let proxy = self.proxy.clone();
-        std::thread::spawn(move || {
-            let code = platform::ask_code(
-                "Type the code shown on the Cardputer in Cardmic > Settings > Pairing (turn Pairing on first).",
-            );
-            let _ = proxy.send_event(UserEvent::Code(code));
+    }
+
+    /// `None` = pick automatically.
+    fn set_output(&mut self, name: Option<String>) {
+        match name {
+            Some(name) => {
+                self.settings.output = Some(name);
+                self.settings.output_manual = true;
+            }
+            None => self.settings.output_manual = false,
+        }
+        self.settings.save();
+        self.shape = None;
+        if self.settings.wifi {
+            self.start();
+        }
+    }
+
+    fn set_login(&mut self, on: bool) {
+        if let Err(e) = platform::set_login_item(on) {
+            log(&format!("login item: {e}"));
+            platform::alert("Could not change Open at Login", &e);
+        }
+        self.shape = None;
+    }
+
+    fn pair(&mut self, text: &str) -> Result<(), String> {
+        let code = normalize_code(text).map_err(|e| format!("{e}. The code looks like 7K2M-9QXB-4TPA."))?;
+        pairing_store::save(&code)?;
+        self.paired = true;
+        if self.settings.wifi {
+            self.start();
+        }
+        Ok(())
+    }
+
+    fn unpair(&mut self) {
+        match pairing_store::remove() {
+            Ok(_) => {
+                self.paired = false;
+                if self.settings.wifi {
+                    self.start();
+                }
+            }
+            Err(e) => platform::alert("Could not forget the pairing code", &e),
+        }
+    }
+
+    fn command(&mut self, cmd: Command) {
+        match cmd {
+            Command::Ready => {}
+            Command::Wifi(on) => self.set_wifi(on),
+            Command::Output(name) => self.set_output(name),
+            Command::Pair(text) => {
+                let result = self.pair(&text);
+                if let Some(ui) = &self.ui {
+                    ui.pair_result(result.is_ok(), result.as_ref().err().map(String::as_str).unwrap_or(""));
+                }
+            }
+            Command::Unpair => self.unpair(),
+            Command::Login(on) => self.set_login(on),
+            Command::Open(what) => match what.as_str() {
+                "help" => platform::open_url(HELP),
+                "updates" => platform::open_url(RELEASES),
+                "install" => platform::open_url(output::install_hint().1),
+                "privacy" => platform::open_url(platform::PRIVACY_URL),
+                "sound" => platform::open_sound_settings(),
+                _ => {}
+            },
+            Command::Retry => self.set_wifi(true),
+            Command::Copy(text) => platform::copy_text(&text),
+            Command::Drag => {
+                if let Some(ui) = &self.ui {
+                    let _ = ui.window.drag_window();
+                }
+            }
+        }
+        self.push_state();
+    }
+
+    fn show_window(&mut self) {
+        match &self.ui {
+            Some(ui) => {
+                ui.show();
+                self.push_state();
+            }
+            // No web view (very old Windows without WebView2): the menu will do.
+            None => self.show_menu(true),
+        }
+    }
+
+    fn hide_window(&mut self) {
+        if let Some(ui) = &self.ui {
+            ui.hide();
+        }
+    }
+
+    /// Send the state to the window, if it is open.
+    fn push_state(&self) {
+        let Some(ui) = self.ui.as_ref().filter(|u| u.visible()) else { return };
+        ui.push(&self.state_json());
+    }
+
+    fn state_json(&self) -> String {
+        let status = self.status();
+        let s = status.as_ref();
+        let connected = s.and_then(|s| match s.link {
+            Link::Connected { addr, encrypted } => Some((addr, encrypted)),
+            Link::Searching => None,
         });
+        let phase = match (&self.wifi, s) {
+            (Wifi::Off, _) => "off",
+            (Wifi::Starting, _) => "starting",
+            (Wifi::NoLoopback, _) => "no_loopback",
+            (Wifi::AskingMic, _) => "asking_mic",
+            (Wifi::MicDenied, _) => "mic_denied",
+            (Wifi::Busy, _) => "busy",
+            (Wifi::Failed(_), _) => "failed",
+            (Wifi::Running(_), _) if connected.is_some() => "connected",
+            (Wifi::Running(_), Some(s)) if s.auth_failures > 0 => "wrong_code",
+            (Wifi::Running(_), _) => "searching",
+        };
+        let (mut title, mut detail, _) = self.describe(s);
+        if let Some((addr, _)) = connected {
+            title = "Connected".into();
+            detail = format!("Cardputer at {}", addr.ip());
+        }
+        if phase == "off" && self.devices.usb_mic.is_some() {
+            title = "Connected over USB".into();
+            detail = "Wi-Fi receiving is off".into();
+        }
+        let loss = s.map_or(0.0, |s| {
+            let total = s.packets + s.concealed;
+            if total == 0 { 0.0 } else { s.concealed as f64 * 100.0 / total as f64 }
+        });
+        let outputs: Vec<(String, String)> =
+            self.devices.loopbacks.iter().map(|c| (c.output.clone(), c.label())).collect();
+        let output = s.map(|s| s.output.clone()).or_else(|| self.settings.output.clone());
+        Json::default()
+            .str("platform", if cfg!(target_os = "macos") { "mac" } else { "win" })
+            .str("version", VERSION)
+            .bool("wifi", self.settings.wifi)
+            .bool("login", platform::login_item_enabled())
+            .str("phase", phase)
+            .str("title", &title)
+            .str("detail", &detail)
+            .opt("device", connected.map(|(a, _)| a.ip().to_string()).as_deref())
+            .bool("encrypted", connected.is_some_and(|(_, e)| e))
+            .opt("mic", s.map(|s| s.mic.as_str()))
+            .opt("output", output.as_deref())
+            .bool("manual", self.settings.output_manual)
+            .pairs("outputs", &outputs)
+            .num("level", s.map_or(0.0, |s| s.level as f64))
+            .num("buffer_ms", s.map_or(0.0, |s| s.target_ms))
+            .num("loss_pct", loss)
+            .opt("usb", self.devices.usb_mic.as_deref())
+            .bool("paired", self.paired)
+            .str("install_name", output::install_hint().0)
+            .build()
     }
 
     fn tick(&mut self) {
@@ -572,21 +749,18 @@ impl App {
                 self.start();
             }
         }
+        #[cfg(target_os = "macos")]
+        if !self.logged_icon && self.shape.is_some() {
+            self.logged_icon = true;
+            log(&format!("menu bar icon visible: {}", platform::icon_visible(&self.tray)));
+        }
         if self.first_launch && self.shape.is_some() {
-            // Show where the app lives, once.
+            // Show what Cardmic is, once.
             self.first_launch = false;
-            #[cfg(target_os = "macos")]
-            self.show_menu(false);
-            #[cfg(target_os = "windows")]
-            std::thread::spawn(|| {
-                platform::alert(
-                    "Cardmic is running",
-                    "Find its icon, three dots, in the notification area next to the clock (click ^ if it is hidden). \
-                     Its menu shows what to pick as the microphone in your apps.",
-                )
-            });
+            self.show_window();
         }
         self.refresh();
+        self.push_state();
     }
 
     // ------------------------------------------------------------ view
@@ -611,7 +785,7 @@ impl App {
             usb: self.devices.usb_mic.clone(),
             needs_loopback: matches!(self.wifi, Wifi::NoLoopback),
             mic_denied: matches!(self.wifi, Wifi::MicDenied),
-            paired: pairing_store::load().is_some(),
+            paired: self.paired,
             loopbacks: self.devices.loopbacks.clone(),
             output: status.as_ref().map(|s| s.output.clone()).or_else(|| self.settings.output.clone()),
             manual: self.settings.output_manual,
@@ -716,6 +890,8 @@ impl App {
         let menu = Menu::new();
         let sep = PredefinedMenuItem::separator;
 
+        let _ = menu.append(&it.open);
+        let _ = menu.append(&sep());
         let _ = menu.append(&it.status);
         let _ = menu.append(&it.hint);
         if shape.connected {
@@ -777,6 +953,7 @@ impl App {
 impl Items {
     fn new() -> Items {
         Items {
+            open: MenuItem::new("Open Cardmic", true, None),
             status: MenuItem::new("Getting ready…", false, None),
             hint: MenuItem::new("", false, None),
             level: MenuItem::new("", false, None),
