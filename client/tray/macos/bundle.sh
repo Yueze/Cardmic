@@ -41,7 +41,7 @@ if [ -n "${CARDMIC_LOCAL_DEV:-}" ] && [ -z "${CODESIGN_IDENTITY:-}" ]; then
   REQ=(-r='designated => identifier "io.github.yueze.cardmic"')
 fi
 codesign --force --options runtime --timestamp=none \
-  --entitlements tray/macos/Cardmic.entitlements "${REQ[@]}" \
+  --entitlements tray/macos/Cardmic.entitlements ${REQ[@]+"${REQ[@]}"} \
   --sign "${CODESIGN_IDENTITY:--}" "$APP"
 
 # Disk image: the app next to an Applications shortcut.
