@@ -1226,8 +1226,9 @@ void draw_pairing()
     char code[CARDMIC_PAIR_CODE_LEN + 3];
     cardmic_pair_format(s_demo ? "7K2M9QXB4TPA" : s_pair_code, code);  // docs screenshots get a sample code
     text(&fonts::FreeMonoBold9pt7b, C_TEXT, W / 2, 17, code, textdatum_t::top_center);
-    // The two ways to pair, named as the computer app names them. 34 chars max.
-    text(&fonts::Font0, C_DIM, 2, 38, "PLUG IN ONCE TO PAIR, OR TYPE THIS");
+    // The two ways to pair, named as the computer app names them. Font0 lines
+    // at x = 2 fit 33 characters.
+    text(&fonts::Font0, C_DIM, 2, 38, "PLUG IN ONCE TO PAIR, OR TYPE IT");
     text(&fonts::Font0, C_ACCENT, 2, 49, "IN CARDMIC: PAIRING > ENTER CODE");
 
     const char* status;
@@ -1235,11 +1236,11 @@ void draw_pairing()
     if (s_pair_busy) {
         status = "APPLYING...", col = C_TEXT;
     } else if (!s_pair_required) {
-        status = "OFF: ANYONE ON THIS WI-FI CAN LISTEN", col = C_WARN;
+        status = "OFF: ANYONE ON THE WI-FI CAN HEAR", col = C_WARN;
     } else if (cardmic_net_encrypted()) {
         status = "ON: PAIRED COMPUTER CONNECTED", col = C_ACCENT;
     } else {
-        status = "ON: ONLY PAIRED COMPUTERS, ENCRYPTED", col = C_ACCENT;
+        status = "ON: ONLY PAIRED COMPUTERS HEAR IT", col = C_ACCENT;
     }
     text(&fonts::Font0, col, 2, 66, status);
     text(&fonts::Font0, C_DIM, 2, 78, "NEW CODE UNPAIRS EVERY COMPUTER");
@@ -1265,7 +1266,7 @@ void draw_about()
     std::string latest = cardmic_ota_latest();
     switch (cardmic_ota_state()) {
         case CARDMIC_OTA_IDLE:
-            if (!GetHAL().isWifiConnected()) text(&fonts::Font0, C_DIM, 2, y, "CONNECT WI-FI TO CHECK FOR UPDATES");
+            if (!GetHAL().isWifiConnected()) text(&fonts::Font0, C_DIM, 2, y, "JOIN WI-FI TO CHECK FOR UPDATES");
             break;
         case CARDMIC_OTA_CHECKING:
             text(&fonts::Font0, C_TEXT, 2, y, "CHECKING FOR UPDATES...");
