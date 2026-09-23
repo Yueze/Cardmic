@@ -36,8 +36,18 @@
   example right after an over-the-air update) used to leave the Cardputer
   with no USB device until it was unplugged; the USB port is now handed back
   to the stock serial port on every restart.
-- Client: the jitter buffer may grow to 400 ms on very busy networks (was
-  240 ms). `cardmic --version`.
+- **Cardmic app for macOS and Windows.** A Dock/menu bar app (tray on
+  Windows) with a small window in the device's style: its spectrogram and
+  meter, live readouts, and Mac controls. `Cardmic-macOS.dmg`,
+  `Cardmic-Windows-Setup.exe`. The `cardmic` command stays, built on the
+  same engine.
+- **Pair by plugging in.** Connect the Cardputer over USB once with pairing
+  on, and the app takes the code itself; Wi-Fi then works, encrypted. A
+  Cardputer with pairing on also tells a computer that lacks the code, so
+  the app asks for it instead of searching forever.
+- Client: the jitter buffer starts at 60 ms, grows after dropouts (up to
+  400 ms on very busy networks) and comes back down after 15 calm seconds.
+  `cardmic --version`.
 - Update check: a pre-release (e.g. 0.6.0-beta.1) now ranks below the
   release of the same number, so beta testers still get the final version.
 

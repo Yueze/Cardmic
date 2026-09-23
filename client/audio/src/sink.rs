@@ -15,13 +15,18 @@ use std::time::Duration;
 
 // Jitter buffer. Playback starts once `target` audio is queued, and the
 // target adapts to the network: every underrun raises it one step, up to a
-// ceiling. A quiet LAN stays near the starting 80 ms. A host whose Wi-Fi
-// pauses periodically settles at a size that absorbs the pauses: a Mac
-// on Wi-Fi measured 100-115 ms gaps about once a second (a Windows PC on
-// the same network: none over 100 ms) and settles at 160 ms within seconds.
+// ceiling, and a long enough stretch without one lowers it again, down to a
+// floor. A quiet LAN stays at the floor. A host whose Wi-Fi pauses
+// periodically settles at a size that absorbs the pauses: a Mac on Wi-Fi
+// measured 100-115 ms gaps about once a second (a Windows PC on the same
+// network: none over 100 ms) and settles at 160 ms within seconds.
 
-/// Starting target, and the floor.
-const START_TARGET: Duration = Duration::from_millis(80);
+/// Starting target, and the floor. Packets carry 20 ms each, so this is
+/// three packets: one playing, one arriving, one in hand.
+const START_TARGET: Duration = Duration::from_millis(60);
+/// After this long without an underrun, the target comes down a notch.
+const CALM: Duration = Duration::from_secs(15);
+const SHRINK_STEP: Duration = Duration::from_millis(20);
 /// Added to the target after each underrun.
 const TARGET_STEP: Duration = Duration::from_millis(40);
 /// The target never grows past this, so latency stays usable for calls. A
@@ -45,8 +50,13 @@ struct QueueState {
     playing: bool,
     target: usize,
     step: usize,
+    min_target: usize,
     max_target: usize,
     headroom: usize,
+    /// Samples played since the last underrun (or the last shrink).
+    calm_played: usize,
+    calm: usize,
+    shrink: usize,
 }
 
 /// Mono samples at the device rate, shared between the network thread
@@ -69,8 +79,12 @@ impl SampleQueue {
                 playing: false,
                 target: samples_for(START_TARGET, rate),
                 step: samples_for(TARGET_STEP, rate),
+                min_target: samples_for(START_TARGET, rate),
                 max_target: samples_for(MAX_TARGET, rate),
                 headroom: samples_for(HEADROOM, rate),
+                calm_played: 0,
+                calm: samples_for(CALM, rate),
+                shrink: samples_for(SHRINK_STEP, rate),
             }),
             underruns: AtomicU64::new(0),
             trimmed: AtomicU64::new(0),
@@ -138,15 +152,30 @@ impl SampleQueue {
         }
         for frame in out.chunks_mut(channels) {
             match s.buf.pop_front() {
-                Some(v) => frame.fill(v),
+                Some(v) => {
+                    frame.fill(v);
+                    s.calm_played += 1;
+                }
                 None => {
                     frame.fill(0.0);
                     if s.playing {
                         s.playing = false;
                         s.target = (s.target + s.step).min(s.max_target);
+                        s.calm_played = 0;
                         self.underruns.fetch_add(1, Ordering::Relaxed);
                     }
                 }
+            }
+        }
+        // Steady for a while: lower the target, and drop the audio above it
+        // (a few ms, once) so latency actually comes down with it.
+        if s.calm_played >= s.calm && s.target > s.min_target {
+            s.target = s.target.saturating_sub(s.shrink).max(s.min_target);
+            s.calm_played = 0;
+            let keep = s.target + s.shrink;
+            if s.buf.len() > keep {
+                let excess = s.buf.len() - keep;
+                s.buf.drain(..excess);
             }
         }
     }
@@ -291,6 +320,26 @@ mod tests {
             drain_past_empty(&q);
         }
         assert_eq!(q.target(), samples_for(MAX_TARGET, RATE));
+    }
+
+    #[test]
+    fn a_calm_link_brings_the_target_back_down() {
+        let q = SampleQueue::new(RATE);
+        // One underrun raises the target...
+        q.push(&vec![0.1; start()]);
+        drain_past_empty(&q);
+        let raised = q.target();
+        assert!(raised > start());
+        // ...then 15 s of steady playback lowers it a notch.
+        let mut out = vec![0.0; 480];
+        let mut played = 0;
+        // (plus the time it takes to refill before playback resumes)
+        while played < samples_for(CALM, RATE) + 2 * raised {
+            q.push(&vec![0.1; 480]);
+            q.fill(&mut out, 1);
+            played += 480;
+        }
+        assert_eq!(q.target(), raised - samples_for(SHRINK_STEP, RATE));
     }
 
     #[test]

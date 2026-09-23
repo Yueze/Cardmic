@@ -132,6 +132,9 @@ struct App {
     usb: Option<UsbMonitor>,
     usb_retry_at: Option<Instant>,
     asked_mic_for_usb: bool,
+    usb_checked: Option<Instant>,
+    /// "Open at login", as last read: asking the system is a slow round trip.
+    login_cache: std::cell::Cell<Option<(bool, Instant)>>,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     logged_icon: bool,
     /// The menu currently attached to the icon.
@@ -388,6 +391,8 @@ impl App {
             usb: None,
             usb_retry_at: None,
             asked_mic_for_usb: false,
+            usb_checked: None,
+            login_cache: std::cell::Cell::new(None),
             logged_icon: false,
             menu,
         };
@@ -660,7 +665,19 @@ impl App {
         }
     }
 
+    fn login_enabled(&self) -> bool {
+        match self.login_cache.get() {
+            Some((on, at)) if at.elapsed() < Duration::from_secs(10) => on,
+            _ => {
+                let on = platform::login_item_enabled();
+                self.login_cache.set(Some((on, Instant::now())));
+                on
+            }
+        }
+    }
+
     fn set_login(&mut self, on: bool) {
+        self.login_cache.set(None);
         if let Err(e) = platform::set_login_item(on) {
             log(&format!("login item: {e}"));
             platform::alert("Could not change Open at Login", &e);
@@ -810,7 +827,7 @@ impl App {
             .str("platform", if cfg!(target_os = "macos") { "mac" } else { "win" })
             .str("version", VERSION)
             .bool("wifi", self.settings.wifi)
-            .bool("login", platform::login_item_enabled())
+            .bool("login", self.login_enabled())
             .str("phase", phase)
             .str("wifi_phase", wifi_phase)
             .str("title", &title)
@@ -835,9 +852,18 @@ impl App {
     /// Open or close the USB monitor to match: window open, Cardputer
     /// plugged in, microphone access granted.
     fn sync_usb(&mut self) {
+        // Twice a second is plenty, and the permission check is not free.
+        if self.usb_checked.is_some_and(|t| t.elapsed() < Duration::from_millis(500)) {
+            return;
+        }
+        self.usb_checked = Some(Instant::now());
         let window_open = self.ui.as_ref().is_some_and(|u| u.visible());
         let access = platform::mic_access();
-        if window_open && self.devices.usb_mic.is_some() && access == MicAccess::NotAsked && !self.asked_mic_for_usb {
+        // Only once Wi-Fi is up: while the system's permission prompt is
+        // unanswered, macOS holds up opening audio devices for this app,
+        // which would stall Wi-Fi until someone clicks.
+        let wifi_settled = !matches!(self.wifi, Wifi::Starting);
+        if window_open && wifi_settled && self.devices.usb_mic.is_some() && access == MicAccess::NotAsked && !self.asked_mic_for_usb {
             // Recording from the USB microphone needs the permission; ask once.
             self.asked_mic_for_usb = true;
             let proxy = self.proxy.clone();
