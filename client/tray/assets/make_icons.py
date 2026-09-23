@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate the Cardmic tray and app icons.
 
-The tray mark is three dots in a triangle: compact and unlike any other
-menu bar icon, so it is easy to spot among many.
+The mark is three dots in a triangle pointing right: compact, and easy to spot
+among many menu bar icons.
 
     python3 make_icons.py        (needs Pillow; macOS iconutil for .icns)
 
@@ -62,18 +62,23 @@ def mic(size_pt, px, fill, stroke, *, filled, slash=False, outline=None):
     return im.resize((px, px), Image.LANCZOS)
 
 
-def dots(px, fill, *, filled, alpha=255, keyline=None):
-    """Cardmic's menu bar mark: three dots in a triangle, on an 18 pt canvas.
+# Cardmic's mark: three dots forming a triangle that points right, the tip dot
+# a little larger, like sound leaving a speaker. Deliberately not the upright
+# triangle of three equal dots, which is Asana's registered logo.
+MARK = [(4.85, 4.6, 2.3), (4.85, 13.4, 2.3), (12.45, 9.0, 3.0)]  # x, y, r in pt on 18 pt
+
+
+def dots(px, fill, *, filled, alpha=255, keyline=None, canvas=18.0, scale=1.0, offset=(0.0, 0.0)):
+    """The mark on a square canvas of `canvas` pt rendered at px pixels.
 
     Filled dots mean audio is flowing; rings mean waiting or off.
     """
-    k = px * SS / 18.0
+    k = px * SS / canvas
     im = Image.new("RGBA", (px * SS, px * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    r = 2.7  # dot radius, pt
-    centres = [(9.0, 4.9), (4.3, 13.1), (13.7, 13.1)]  # equilateral, 9.4 pt side
     col = fill[:3] + (alpha,)
-    for cx, cy in centres:
+    for x, y, r in MARK:
+        cx, cy, r = x * scale + offset[0], y * scale + offset[1], r * scale
         if keyline is not None:
             e = r + 0.8
             d.ellipse([(cx - e) * k, (cy - e) * k, (cx + e) * k, (cy + e) * k], fill=keyline)
@@ -105,7 +110,7 @@ def tray_icons():
 
 
 def app_icon(px):
-    """Black squircle, lime microphone: the device's own palette."""
+    """Black squircle with the lime mark: the device's own palette."""
     S = px * SS
     im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -119,17 +124,9 @@ def app_icon(px):
     hl = Image.new("RGBA", (S, S), (255, 255, 255, 0))
     hl.putalpha(Image.composite(fade, Image.new("L", (S, S), 0), shape))
     im.alpha_composite(hl)
-    d = ImageDraw.Draw(im)
-    glyph = mic(18, px, LIME, LIME, filled=True).resize((S, S), Image.LANCZOS)
-    g = glyph.resize((int(S * 0.56), int(S * 0.56)), Image.LANCZOS)
-    im.alpha_composite(g, (int(S * 0.22), int(S * 0.21)))
-    # sound waves either side
-    w = S * 0.022
-    cx, cy = S * 0.5, S * 0.40
-    for r, a in ((S * 0.27, 255), (S * 0.34, 150)):
-        box = [cx - r, cy - r, cx + r, cy + r]
-        d.arc(box, -38, 38, fill=LIME[:3] + (a,), width=round(w))
-        d.arc(box, 142, 218, fill=LIME[:3] + (a,), width=round(w))
+    # The mark, centred on the tile (its box is 3.7..16.3 x 2.3..15.7 pt).
+    mark = dots(px, LIME, filled=True, canvas=18.0, scale=0.62, offset=(9 - 10.0 * 0.62, 9 - 9.0 * 0.62))
+    im.alpha_composite(mark.resize((S, S), Image.LANCZOS))
     return im.resize((px, px), Image.LANCZOS)
 
 

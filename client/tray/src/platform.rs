@@ -15,6 +15,8 @@ pub enum MicAccess {
 
 #[cfg(target_os = "macos")]
 mod imp {
+    use dispatch2::{DispatchQueue, MainThreadBound};
+    use objc2::rc::Retained;
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSEvent, NSMenu, NSWindowOcclusionState};
     use objc2_service_management::{SMAppService, SMAppServiceStatus};
@@ -152,20 +154,37 @@ mod imp {
         window.occlusionState().contains(NSWindowOcclusionState::Visible)
     }
 
-    /// Show the menu at the pointer, for when the icon cannot be seen.
-    pub fn pop_up_menu(menu: &tray_icon::menu::Menu) {
+    /// Open the menu: from the icon if macOS draws it, else at the pointer.
+    ///
+    /// Deferred to the main queue. A menu runs its own event loop, and
+    /// starting one from inside tao's event handler deadlocks: tao locks its
+    /// handler again from the nested loop.
+    pub fn show_menu(tray: &tray_icon::TrayIcon, menu: &tray_icon::menu::Menu) {
         let Some(mtm) = MainThreadMarker::new() else { return };
-        let ptr = menu.ns_menu() as *const NSMenu;
-        if ptr.is_null() {
-            return;
-        }
-        // SAFETY: muda keeps the NSMenu alive as long as `menu`.
-        let ns_menu: &NSMenu = unsafe { &*ptr };
-        let app = NSApplication::sharedApplication(mtm);
-        #[allow(deprecated)]
-        app.activateIgnoringOtherApps(true);
-        let at = NSEvent::mouseLocation();
-        ns_menu.popUpMenuPositioningItem_atLocation_inView(None, at, None);
+        let ptr = menu.ns_menu() as *mut NSMenu;
+        // SAFETY: a live NSMenu owned by `menu`; retained for the deferred call.
+        let Some(ns_menu) = (unsafe { Retained::retain(ptr) }) else { return };
+        let item = if icon_visible(tray) { tray.ns_status_item() } else { None };
+        let bound = MainThreadBound::new((ns_menu, item), mtm);
+        DispatchQueue::main().exec_async(move || {
+            let Some(mtm) = MainThreadMarker::new() else { return };
+            let (menu, item) = bound.get(mtm);
+            let app = NSApplication::sharedApplication(mtm);
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+            match item.as_ref().and_then(|i| i.button(mtm).map(|b| (i, b))) {
+                Some((item, button)) => {
+                    // What a click on the icon does.
+                    item.setMenu(Some(menu));
+                    // SAFETY: a nil sender is what AppKit itself passes.
+                    unsafe { button.performClick(None) };
+                    item.setMenu(None);
+                }
+                None => {
+                    menu.popUpMenuPositioningItem_atLocation_inView(None, NSEvent::mouseLocation(), None);
+                }
+            }
+        });
     }
 }
 

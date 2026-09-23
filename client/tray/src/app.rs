@@ -546,7 +546,7 @@ impl App {
             #[cfg(target_os = "macos")]
             {
                 if platform::icon_visible(&self.tray) {
-                    self.tray.show_menu();
+                    self.show_menu();
                 } else {
                     std::thread::spawn(|| {
                         platform::alert(
@@ -575,10 +575,8 @@ impl App {
     fn show_menu(&mut self) {
         self.refresh();
         #[cfg(target_os = "macos")]
-        if !platform::icon_visible(&self.tray) {
-            platform::pop_up_menu(&self.menu);
-            return;
-        }
+        platform::show_menu(&self.tray, &self.menu);
+        #[cfg(target_os = "windows")]
         self.tray.show_menu();
     }
 
