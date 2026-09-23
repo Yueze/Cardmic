@@ -1226,8 +1226,9 @@ void draw_pairing()
     char code[CARDMIC_PAIR_CODE_LEN + 3];
     cardmic_pair_format(s_demo ? "7K2M9QXB4TPA" : s_pair_code, code);  // docs screenshots get a sample code
     text(&fonts::FreeMonoBold9pt7b, C_TEXT, W / 2, 17, code, textdatum_t::top_center);
-    text(&fonts::Font0, C_DIM, 2, 38, "ON YOUR COMPUTER, OPEN CARDMIC:");
-    text(&fonts::Font0, C_ACCENT, 2, 49, "PAIRING > PAIR... > TYPE THIS CODE");
+    // The two ways to pair, named as the computer app names them. 34 chars max.
+    text(&fonts::Font0, C_DIM, 2, 38, "PLUG IN ONCE TO PAIR, OR TYPE THIS");
+    text(&fonts::Font0, C_ACCENT, 2, 49, "IN CARDMIC: PAIRING > ENTER CODE");
 
     const char* status;
     uint32_t col;

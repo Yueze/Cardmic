@@ -254,11 +254,17 @@ static void net_task(void *arg)
         discovery_t discovery = DISCOVERY_NONE;
         // Screenshots show whatever is on screen; not while pairing is on. Say
         // so rather than staying silent, which reads as "device offline".
-        if (pair_required && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
+        // Development builds take them anyway, for the docs.
+#ifdef CARDMIC_DEV_TOOLS
+        const bool shots_refused = false;
+#else
+        const bool shots_refused = pair_required;
+#endif
+        if (shots_refused && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
             memcmp(buf, SCREENSHOT, sizeof(SCREENSHOT) - 1) == 0) {
             static const char denied[] = "CARDMIC_PAIRING_REQUIRED";
             sendto(sock, denied, sizeof(denied) - 1, 0, (struct sockaddr *)&from, sizeof(from));
-        } else if (!pair_required && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
+        } else if (!shots_refused && n >= (ssize_t)(sizeof(SCREENSHOT) - 1) &&
             memcmp(buf, SCREENSHOT, sizeof(SCREENSHOT) - 1) == 0 && !s_shot_wanted) {
             // "CARDMIC_SCREENSHOT" or "CARDMIC_SCREENSHOT <page>"; served by the UI task.
             buf[n] = '\0';
