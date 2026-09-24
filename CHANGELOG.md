@@ -18,6 +18,18 @@
   as the device says; the guide said at once.
 - **Protocol:** the device tells its receiver its name, `CARDMIC_NAME <name>`
   (see PROTOCOL.md). Older apps ignore it.
+- **Windows: a blocked microphone says so.** With a microphone privacy switch
+  off (for the device, the user, or desktop apps), the app shows
+  "Microphone access is off" and opens that Settings page, instead of
+  reporting that no virtual device works.
+- **App:** downloads of versions already installed are cleared at start;
+  `Cardmic --diagnose` prints in the Windows console it was started from; the
+  installer names its publisher The Cardmic Authors.
+- **App: ready for a registered USB ID.** It also finds a Cardputer's identity
+  under Espressif's vendor ID, so a firmware with a registered product ID
+  will be recognised without an app update.
+- **Builds:** macOS releases sign with a Developer ID and notarize once the
+  signing secrets are set in CI; until then they are signed ad hoc, as before.
 
 ## 0.6.2 — 2026-09-24
 
