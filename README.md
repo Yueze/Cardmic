@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>A USB and Wi-Fi microphone for the M5Stack Cardputer.</b><br>
-  Plug it in and it is a microphone. Unplug it and keep talking over Wi-Fi.
+  Talk to Wispr Flow, Typeless, Superwhisper or any dictation app, over USB or Wi-Fi.<br>
+  No driver, a push-to-talk key over USB, and it runs inside the stock firmware.
 </p>
 
 <p align="center">
@@ -53,6 +54,30 @@ microphone your computer can use in two ways.
     </td>
   </tr>
 </table>
+
+## Works with your dictation app
+
+Cardmic is a standard microphone, so every voice-typing app can listen to
+it. Over USB the Cardputer is also a push-to-talk key: hold `Space` and it
+holds your app's dictation shortcut; let go and it lets go.
+
+| App | Platforms | Choose Cardmic in | Push-to-talk from the Cardputer |
+|---|---|---|---|
+| [Wispr Flow](https://wisprflow.ai) | macOS, Windows | Settings > General > Microphone > Change. Over Wi-Fi, the virtual device is under *Show other devices*. | Matches its defaults: talk key `CTRL+WIN` on Windows, `CTRL+OPT` on Macs without a Fn key (with one, pick Control + Option as the shortcut in Wispr Flow). |
+| [Typeless](https://www.typeless.com) | macOS, Windows | The system's input device | Shortcut customizable in Settings > Shortcuts |
+| [Superwhisper](https://superwhisper.com) | macOS | Settings > Sound > Input Device | Push-to-talk shortcut customizable in its settings |
+| [Handy](https://github.com/cjpais/Handy) (open source) | macOS, Windows, Linux | Its microphone setting | Shortcut customizable; push-to-talk on by default |
+| macOS Dictation | macOS | System Settings > Keyboard > Dictation > Microphone source | — |
+| Windows voice typing (`Win`+`H`) | Windows | Settings > System > Sound > Input | — |
+
+Any other app that takes a microphone works the same way: VoiceInk, Doubao
+Input (豆包输入法), and calls, recording or streaming apps. Pick
+**Cardmic Microphone** over USB; over Wi-Fi, pick the virtual device the
+Cardmic app names.
+
+The talk key sends `Ctrl`+`Option`, `Ctrl`+`Win` or `F13`: any app whose
+shortcut setting accepts one of those can use the Cardputer's `Space` as its
+push-to-talk key. Set-up: [Hold to talk](docs/talk-key.md).
 
 ## The app
 
@@ -119,13 +144,6 @@ Step by step: [macOS](docs/macos.md) · [Windows](docs/windows.md).
 
 A virtual device you already have (from Zoom, Teams, Loopback and similar) may
 do instead: the app tests them and picks one that works.
-
-## Works with
-
-Any app that lets you choose a microphone: dictation, calls, recording,
-streaming. For dictation, the Cardputer can also be the push-to-talk key:
-over USB it is a one-key keyboard as well, and holding `Space` holds your
-dictation app's shortcut. See [Hold to talk](docs/talk-key.md).
 
 ## Specifications
 
@@ -252,3 +270,8 @@ The firmware is a fork of M5Stack's MIT-licensed factory firmware: the files
 that come from it keep their MIT license (see their headers), and Cardmic's
 own code is under Apache 2.0. See [NOTICE.md](NOTICE.md) for third-party
 credits. Cardmic is an independent project, not affiliated with M5Stack.
+
+Wispr Flow, Typeless, Superwhisper, Handy, VoiceInk, Doubao and the other
+product names above are trademarks of their respective owners, used here
+only to say what Cardmic works with. Cardmic is not affiliated with or
+endorsed by any of them.
