@@ -10,6 +10,9 @@ Nothing to install. Plug the Cardputer in, open Cardmic, and choose
 **Cardmic Microphone** as the input in your app, or in
 Settings > System > Sound > Input.
 
+Gave the Cardputer a name in Settings > Name? It is listed under that name
+instead, from the next time Cardmic opens on it.
+
 ## Wireless mode
 
 Wireless mode needs the Cardmic app, which receives the audio, and a
@@ -54,15 +57,22 @@ Cardmic keeps itself up to date: it checks for a new version now and then,
 downloads it in the background and installs it when nothing is in use (or
 when you click **Restart to update** at the bottom of its window).
 
-### 4. Pair it (recommended)
+### 4. Pair it
 
-1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on.
-2. Plug the Cardputer into the PC once, with Cardmic open on both. The app
-   reads the pairing code over USB and says **Paired over USB**. Unplug it;
-   Wi-Fi now connects encrypted.
+Pairing is on out of the box: the Cardputer sends audio only to computers
+that know its code, and encrypts it. Until this PC knows the code, the
+window says **Pairing needed**.
+
+1. Plug the Cardputer into the PC once, with Cardmic open on both. The app
+   reads the pairing code over USB and says **Paired over USB**.
+2. Unplug it. Wi-Fi now connects, encrypted.
 
 No cable at hand? Click **Enter code** in the window's Pairing row and type
-the code from the Cardputer's Pairing page.
+the code from the Cardputer's Settings > Pairing.
+
+`Enter` on the Cardputer's Pairing page turns pairing off, and then anyone on
+the same Wi-Fi who runs Cardmic first can receive the audio, unencrypted. (A
+Cardputer updated from Cardmic 0.6 keeps pairing off until you turn it on.)
 
 ### Command line
 

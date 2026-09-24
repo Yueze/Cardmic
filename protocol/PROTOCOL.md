@@ -6,10 +6,12 @@ little-endian unless stated otherwise. The reference implementations are
 (device) and [`client/core/src/protocol.rs`](../client/core/src/protocol.rs)
 (desktop).
 
-> **Pairing.** With Settings > Pairing off (the default), anyone on the same
-> network who sends discovery first can receive the audio, unencrypted. With
-> it on, only computers that know the device's pairing code get audio, and
-> it is encrypted with AES-128-GCM. See section 3.
+> **Pairing.** With Settings > Pairing on (the default from 0.7.0), only
+> computers that know the device's pairing code get audio, and it is
+> encrypted with AES-128-GCM. With it off, anyone on the same network who
+> sends discovery first can receive the audio, unencrypted. See section 3.
+> A Cardputer that ran Cardmic 0.6 without pairing keeps it off
+> after the update until it is turned on.
 
 ## 1. Discovery and keepalive
 
@@ -32,6 +34,21 @@ Two rules matter as much as the byte layout:
 
 The device serves one receiver at a time. While a session is live, discovery
 from any other address is ignored (first-receiver lock).
+
+### The device's name
+
+On accepting a receiver, and then every 2 s while it keeps sending
+discovery, the device (from 0.7.0) sends that receiver the ASCII datagram
+
+```
+CARDMIC_NAME <name>
+```
+
+with the name it goes by: the one set in Settings > Name, or `Cardmic-` plus
+the last two bytes of its Wi-Fi MAC address. Names are at most 16 printable
+ASCII characters without `;` or `=`. The datagram goes only to the accepted
+receiver, so with pairing on only a paired computer learns the name. Clients
+that do not know it ignore it, as any datagram that is not an audio packet.
 
 ## 2. Audio packets
 
@@ -171,11 +188,14 @@ CM1;pair=1;code=7K2M9QXB4TPA;name=Cardmic-05AC;fw=0.6.0
 CM1;pair=0;name=Cardmic-05AC;fw=0.6.0          (pairing off: no code)
 ```
 
-`name` is `Cardmic-` plus the last two bytes of the Wi-Fi MAC address. The
-Cardmic app reads this report when a Cardputer is plugged in and stores the
+`name` is the device's name, as in section 1. The Cardmic app reads this report when a Cardputer is plugged in and stores the
 code, so the computer is paired for Wi-Fi from then on: plugging in is the
 act of trust. With the talk key on, the same interface also carries the
 keyboard (report 1) and mouse (report 2), so no endpoint is added.
+
+The microphone's USB product name is `Cardmic Microphone`, or the name set
+in Settings > Name (from the next time Cardmic opens), so a computer lists a
+renamed Cardputer under that name.
 
 USB IDs: vendor `0xCAFE` (a placeholder until a registered one), product
 `0x4015` (microphone), `0x4016` (microphone and talk key); development builds

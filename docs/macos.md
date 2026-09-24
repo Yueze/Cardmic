@@ -6,6 +6,9 @@ Nothing to install. Plug the Cardputer in, open Cardmic, and choose
 **Cardmic Microphone** as the input in your app, or in
 System Settings > Sound > Input.
 
+Gave the Cardputer a name in Settings > Name? It is listed under that name
+instead, from the next time Cardmic opens on it.
+
 ## Wireless mode
 
 Wireless mode needs the Cardmic app, which receives the audio, and a
@@ -57,22 +60,24 @@ Cardmic keeps itself up to date: it checks for a new version now and then,
 downloads it in the background and installs it when nothing is in use (or
 when you click **Restart to update** at the bottom of its window).
 
-### 4. Pair it (recommended)
+### 4. Pair it
 
-Out of the box, anyone on the same Wi-Fi who runs Cardmic first could receive
-the audio. Pairing fixes that:
+Pairing is on out of the box: the Cardputer sends audio only to computers
+that know its code, and encrypts it. Until this Mac knows the code, the
+window says **Pairing needed**.
 
-1. On the Cardputer: Settings > **Pairing** > `Enter` to turn it on.
-2. Plug the Cardputer into the Mac once, with Cardmic open on both. The app
-   reads the pairing code over USB and says **Paired over USB**. Unplug it;
-   Wi-Fi now connects encrypted.
+1. Plug the Cardputer into the Mac once, with Cardmic open on both. The app
+   reads the pairing code over USB and says **Paired over USB**.
+2. Unplug it. Wi-Fi now connects, encrypted.
 
 No cable at hand? Click **Enter code** in the window's Pairing row and type
-the code from the Cardputer's Pairing page, e.g. `7K2M-9QXB-4TPA`.
+the code from the Cardputer's Settings > Pairing, e.g. `7K2M-9QXB-4TPA`.
 
-Once paired, **Link** shows a lock, and only computers that know the code
-receive audio. `N` on the Pairing page makes a new code, which unpairs every
-computer; the next time, the window asks for it.
+Once paired, **Link** shows a lock. `N` on the Pairing page makes a new code,
+which unpairs every computer; the next time, the window asks for it.
+`Enter` there turns pairing off, and then anyone on the same Wi-Fi who runs
+Cardmic first can receive the audio, unencrypted. (A Cardputer updated from
+Cardmic 0.6 keeps pairing off until you turn it on.)
 
 ### Command line
 

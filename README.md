@@ -48,9 +48,9 @@ microphone your computer can use in two ways.
       a microphone every app can choose. It finds the Cardputer by itself.
     </td>
     <td width="33%" valign="top">
-      <b>Private when paired</b><br><br>
-      Turn on pairing and plug in once: the two pair themselves. From then on
-      the wireless audio is encrypted, for your paired computers only.
+      <b>Private by default</b><br><br>
+      Plug in once and the two pair themselves. From then on the wireless
+      audio is encrypted, and only your paired computers receive it.
     </td>
   </tr>
 </table>
@@ -111,9 +111,10 @@ and how well.
   3x; network details are placeholders.
 </sub></p>
 
-Everything is set up on the device, with its own keyboard: join Wi-Fi, turn
-on pairing, choose a gain step or a talk key, install updates. No phone app,
-no config files.
+Everything is set up on the device, with its own keyboard: join Wi-Fi, give
+it a name, choose a gain step or a talk key, install updates. No phone app,
+no config files. A name set in Settings > Name is what your computer lists
+the microphone as, so two Cardputers are easy to tell apart.
 
 ## Get started
 
@@ -131,9 +132,10 @@ into your computer, and choose **Cardmic Microphone** in your app.
 network. On the computer, install the Cardmic app from the
 [latest release](https://github.com/Yueze/Cardmic/releases/latest)
 (`Cardmic-macOS.dmg` or `Cardmic-Windows-Setup.exe`) and a virtual audio
-device (below), then choose the microphone the app names, such as
-**BlackHole 2ch**, in your app. To keep the audio private, turn on
-Settings > **Pairing** on the Cardputer and plug it in once.
+device (below). Plug the Cardputer in once so the two pair (pairing is on by
+default), then choose the microphone the app names, such as
+**BlackHole 2ch**, in your app. No cable at hand? Type the code from the
+Cardputer's Settings > Pairing into the app instead.
 
 Step by step: [macOS](docs/macos.md) · [Windows](docs/windows.md).
 
@@ -154,7 +156,7 @@ do instead: the app tests them and picks one that works.
   <tr><td><b>Wi-Fi</b></td><td>2.4 GHz, UDP on the local network, 20 ms packets, automatic discovery</td></tr>
   <tr><td><b>Buffering</b></td><td>60 ms on a clean network. Grows when Wi-Fi stalls (up to 400 ms), shrinks back once it is calm.</td></tr>
   <tr><td><b>Loss&nbsp;handling</b></td><td>Packets reordered; gaps of up to 100 ms concealed</td></tr>
-  <tr><td><b>Security</b></td><td>Optional pairing: a code shown on the device, handed over USB or typed once. Paired audio is encrypted with AES-128-GCM; other computers are refused.</td></tr>
+  <tr><td><b>Security</b></td><td>Pairing, on by default: a code shown on the device, handed over USB or typed once. Paired audio is encrypted with AES-128-GCM; other computers are refused.</td></tr>
   <tr><td><b>Display</b></td><td>100 Hz to 8 kHz spectrogram, a column every 10 ms; 16-segment meter with peak hold</td></tr>
   <tr><td><b>Updates</b></td><td>Device: over Wi-Fi from GitHub Releases, with automatic rollback. App: downloads in the background, installs when idle.</td></tr>
   <tr><td><b>Devices</b></td><td>Cardputer ADV; original Cardputer (v1.1) from 0.6.0</td></tr>
