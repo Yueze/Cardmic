@@ -15,7 +15,7 @@ pub mod spectrum;
 use cardmic_audio::sink::{OutputSink, SampleQueue};
 use cardmic_audio::Candidate;
 use cardmic_core::dsp::{i16_to_f32, Resampler};
-use cardmic_core::pairing::{Keys, OpenError, DISCOVERY_V2_PREFIX};
+use cardmic_core::pairing::{parse_challenge, Keys, OpenError, DISCOVERY_V2_PREFIX};
 use cardmic_core::protocol::{
     DecodeError, Packet, Version, DISCOVERY_INTERVAL, DISCOVERY_MESSAGE, RECEIVER_TIMEOUT,
     SAMPLES_PER_PACKET, SAMPLE_RATE,
@@ -339,6 +339,14 @@ impl Receiver {
                     let data = &buf[..n];
                     // Our own broadcasts come back to us; ignore them.
                     if data == DISCOVERY_MESSAGE || data.starts_with(DISCOVERY_V2_PREFIX) {
+                        continue;
+                    }
+                    if let Some(challenge) = parse_challenge(data) {
+                        // A Cardputer (0.7.0 and later) asking this computer to
+                        // prove it knows the code now, not in a recording.
+                        if let (Some(keys), SocketAddr::V4(device)) = (self.keys.as_ref(), from) {
+                            let _ = self.socket.send_to(&keys.response(&challenge, device), from);
+                        }
                         continue;
                     }
                     if data == PAIRING_REQUIRED {

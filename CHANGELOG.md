@@ -18,6 +18,14 @@
   as the device says; the guide said at once.
 - **Protocol:** the device tells its receiver its name, `CARDMIC_NAME <name>`
   (see PROTOCOL.md). Older apps ignore it.
+- **A recorded discovery can no longer hold the stream.** With pairing on,
+  anyone on the network could record a paired computer's discovery and send
+  it again while that computer was away: the audio stayed encrypted, but the
+  replay kept the paired computer from connecting. Now the device challenges
+  each sender, and a paired app answers, bound to the device's address. A
+  sender that has not answered (a recording, or an app from before 0.7.0)
+  gets the stream only while no answering computer wants it, and is never
+  told the device's name. Older apps and older firmware keep working.
 - **Windows: a blocked microphone says so.** With a microphone privacy switch
   off (for the device, the user, or desktop apps), the app shows
   "Microphone access is off" and opens that Settings page, instead of

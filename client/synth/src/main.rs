@@ -12,20 +12,27 @@
 //!    packet. A client that broadcasts once will go silent after 2.5 s.
 //!
 //! Usage:
-//!   cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT]
+//!   cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT] [--name NAME] [--legacy] [--ip ADDR]
+//!
+//! `--ip` is the address clients reach it at (default 127.0.0.1): challenge
+//! answers are bound to it.
 //!
 //! Without `--pair` it behaves like a device with pairing off (plain CPM1,
 //! any discovery accepted). With `--pair` it behaves like a device with
-//! pairing on: only authenticated v2 discovery, audio sealed as CPM2.
+//! pairing on: only authenticated v2 discovery, audio sealed as CPM2, and,
+//! as firmware 0.7.0 does, a challenge that a live client answers. A sender
+//! that has not answered holds the stream only until one that has comes
+//! along, and is never told the name. `--legacy` leaves the challenge out,
+//! like firmware 0.6.
 //!
 //! `--port` defaults to 41235, not 41234, so it can run on the same machine as
 //! a client that binds 41234. Point the client's discovery at 127.0.0.1:41235.
 
-use cardmic_core::pairing::{normalize_code, Keys};
+use cardmic_core::pairing::{challenge_message, normalize_code, Keys, RESPONSE_LEN, RESPONSE_PREFIX};
 use cardmic_core::protocol::{
     Packet, Version, DISCOVERY_MESSAGE, RECEIVER_TIMEOUT, SAMPLES_PER_PACKET, SAMPLE_RATE,
 };
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
 
 const PACKET_INTERVAL: Duration = Duration::from_millis(20);
@@ -36,6 +43,20 @@ struct Config {
     tone_hz: f32,
     loss_pct: u32,
     name: String,
+    legacy: bool,
+    ip: std::net::Ipv4Addr,
+}
+
+/// A challenge is answered within this, or it is void.
+const CHALLENGE_LIFE: Duration = Duration::from_secs(5);
+/// A sender is sent its challenge again at most this often.
+const CHALLENGE_EVERY: Duration = Duration::from_millis(500);
+
+struct Challenge {
+    to: SocketAddr,
+    bytes: [u8; 16],
+    issued: Instant,
+    sent: Instant,
 }
 
 /// Like the firmware: the device's name, to its receiver on a new session and
@@ -43,7 +64,9 @@ struct Config {
 const NAME_EVERY: Duration = Duration::from_secs(2);
 
 fn parse_args() -> Result<Config, String> {
-    let mut cfg = Config { port: 41235, keys: None, tone_hz: 440.0, loss_pct: 0, name: "Cardmic-Synth".into() };
+    let mut cfg =
+        Config { port: 41235, keys: None, tone_hz: 440.0, loss_pct: 0, name: "Cardmic-Synth".into(), legacy: false,
+        ip: std::net::Ipv4Addr::LOCALHOST };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -55,6 +78,8 @@ fn parse_args() -> Result<Config, String> {
             }
             "--tone" => cfg.tone_hz = value("--tone")?.parse().map_err(|e| format!("--tone: {e}"))?,
             "--name" => cfg.name = value("--name")?,
+            "--legacy" => cfg.legacy = true,
+            "--ip" => cfg.ip = value("--ip")?.parse().map_err(|e| format!("--ip: {e}"))?,
             "--loss" => {
                 cfg.loss_pct = value("--loss")?.parse().map_err(|e| format!("--loss: {e}"))?;
                 if cfg.loss_pct > 100 {
@@ -62,7 +87,7 @@ fn parse_args() -> Result<Config, String> {
                 }
             }
             "-h" | "--help" => {
-                println!("cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT] [--name NAME]");
+                println!("cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT] [--name NAME] [--legacy] [--ip ADDR]");
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument: {other}")),
@@ -111,7 +136,17 @@ fn main() {
         cfg.loss_pct
     );
 
+    // The address clients see this device at: challenge answers are bound to it.
+    let me = SocketAddrV4::new(cfg.ip, cfg.port);
+    let challenging = cfg.keys.is_some() && !cfg.legacy;
     let mut receiver: Option<SocketAddr> = None;
+    let mut verified = false; // the receiver answered a challenge
+    let mut challenges: Vec<Challenge> = Vec::new();
+    let mut random = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1)
+        | 1;
     let mut last_discovery = Instant::now();
     let mut name_told: Option<Instant> = None;
     let mut next_packet = Instant::now();
@@ -125,33 +160,99 @@ fn main() {
     loop {
         // Service discovery. The reply goes to the SOURCE address and port of
         // this datagram -- rule 1 of the contract.
-        match socket.recv_from(&mut buf) {
-            Ok((n, from))
-                if match &cfg.keys {
-                    Some(k) => k.verify_discovery(&buf[..n]),
-                    None => &buf[..n] == DISCOVERY_MESSAGE || buf[..n].starts_with(b"CPADV_MIC_DISCOVER_V2"),
-                } =>
-            {
-                if receiver != Some(from) {
-                    println!("receiver: {from}");
-                    sequence = 0;
-                    session = session.wrapping_mul(1_664_525).wrapping_add(1_013_904_223) ^ from.port() as u32;
-                    name_told = None;
+        if let Ok((n, from)) = socket.recv_from(&mut buf) {
+            let data = &buf[..n];
+            let answered = challenging && data.len() == RESPONSE_LEN && data.starts_with(RESPONSE_PREFIX) && {
+                let keys = cfg.keys.as_ref().expect("challenging implies keys");
+                challenges.retain(|c| c.issued.elapsed() < CHALLENGE_LIFE);
+                match challenges.iter().position(|c| c.to == from && keys.verify_response(data, &c.bytes, me)) {
+                    Some(i) => {
+                        challenges.remove(i); // one answer per challenge
+                        true
+                    }
+                    None => false,
                 }
-                receiver = Some(from);
-                last_discovery = Instant::now();
-                if name_told.is_none_or(|t| t.elapsed() >= NAME_EVERY) {
-                    let _ = socket.send_to(format!("CARDMIC_NAME {}", cfg.name).as_bytes(), from);
-                    name_told = Some(Instant::now());
+            };
+            let discovery = match &cfg.keys {
+                Some(k) => k.verify_discovery(data),
+                None => data == DISCOVERY_MESSAGE || data.starts_with(b"CPADV_MIC_DISCOVER_V2"),
+            };
+            let mut new_session = |to: SocketAddr, how: &str| {
+                println!("receiver: {to}{how}");
+                sequence = 0;
+                session = session.wrapping_mul(1_664_525).wrapping_add(1_013_904_223) ^ to.port() as u32;
+                name_told = None;
+            };
+            if answered {
+                // Live and paired: it takes the stream from a sender that has
+                // not answered, but not from another that has.
+                if receiver.is_none() || receiver == Some(from) || !verified {
+                    if receiver != Some(from) {
+                        new_session(from, " (answered the challenge)");
+                    } else {
+                        println!("receiver {from} answered the challenge");
+                    }
+                    receiver = Some(from);
+                    verified = true;
+                    name_told = None;
+                    last_discovery = Instant::now();
+                }
+            } else if discovery {
+                if receiver.is_none() {
+                    new_session(from, if challenging { " (not yet answered)" } else { "" });
+                    receiver = Some(from);
+                    verified = !challenging;
+                }
+                if receiver == Some(from) {
+                    last_discovery = Instant::now();
+                }
+                if challenging && !(receiver == Some(from) && verified) {
+                    challenges.retain(|c| c.issued.elapsed() < CHALLENGE_LIFE);
+                    let now = Instant::now();
+                    let pos = challenges.iter().position(|c| c.to == from);
+                    let resend = match pos {
+                        Some(i) if challenges[i].sent.elapsed() < CHALLENGE_EVERY => None,
+                        Some(i) => {
+                            challenges[i].sent = now;
+                            Some(challenges[i].bytes)
+                        }
+                        None => {
+                            if challenges.len() >= 4 {
+                                challenges.remove(0);
+                            }
+                            let mut bytes = [0u8; 16];
+                            for b in bytes.iter_mut() {
+                                random ^= random << 13; // xorshift64: fine for a test device
+                                random ^= random >> 7;
+                                random ^= random << 17;
+                                *b = random as u8;
+                            }
+                            challenges.push(Challenge { to: from, bytes, issued: now, sent: now });
+                            Some(bytes)
+                        }
+                    };
+                    if let Some(bytes) = resend {
+                        let _ = socket.send_to(&challenge_message(&bytes), from);
+                    }
                 }
             }
-            Ok(_) | Err(_) => {}
         }
 
         // Rule 2: no keepalive for RECEIVER_TIMEOUT means the receiver is gone.
         if receiver.is_some() && last_discovery.elapsed() > RECEIVER_TIMEOUT {
             println!("receiver timed out after {RECEIVER_TIMEOUT:?} without discovery");
             receiver = None;
+            verified = false;
+        }
+
+        // The name goes only to a receiver that has proved itself (firmware
+        // 0.7.0); firmware 0.6 never sent it.
+        if let Some(to) = receiver {
+            let may_know = !cfg.legacy && (cfg.keys.is_none() || verified);
+            if may_know && name_told.is_none_or(|t| t.elapsed() >= NAME_EVERY) {
+                let _ = socket.send_to(format!("CARDMIC_NAME {}", cfg.name).as_bytes(), to);
+                name_told = Some(Instant::now());
+            }
         }
 
         let Some(dest) = receiver else { continue };

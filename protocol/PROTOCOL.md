@@ -33,12 +33,14 @@ Two rules matter as much as the byte layout:
    last discovery packet. Clients resend every 700 ms.
 
 The device serves one receiver at a time. While a session is live, discovery
-from any other address is ignored (first-receiver lock).
+from any other address is ignored (first-receiver lock), except that with
+pairing on a computer that answers the device's challenge takes over from a
+receiver that has not (section 3).
 
 ### The device's name
 
-On accepting a receiver, and then every 2 s while it keeps sending
-discovery, the device (from 0.7.0) sends that receiver the ASCII datagram
+On accepting a receiver, and then every 2 s while the session lasts, the
+device (from 0.7.0) sends that receiver the ASCII datagram
 
 ```
 CARDMIC_NAME <name>
@@ -46,10 +48,12 @@ CARDMIC_NAME <name>
 
 with the name it goes by: the one set in Settings > Name, or `Cardmic-` plus
 the last two bytes of its Wi-Fi MAC address. Names are at most 16 printable
-ASCII characters without `;` or `=`. The datagram goes only to the accepted
-receiver, but it is not encrypted, and a captured v2 discovery can be sent
-again by someone else, so treat the name as visible on the network. Clients
-that do not know it ignore it, as any datagram that is not an audio packet.
+ASCII characters without `;` or `=`. The datagram goes only to the receiver,
+and with pairing on only once the receiver has answered a challenge
+(section 3), so a replayed discovery does not learn it. It is not encrypted,
+so it can be seen on the air by someone who can read other stations' Wi-Fi
+traffic. Clients that do not know it ignore it, as any datagram that is not
+an audio packet.
 
 ## 2. Audio packets
 
@@ -101,6 +105,44 @@ cannot practically be brute-forced back to the code.
 With pairing on, the device ignores v1 discovery and v2 discovery with a bad
 tag (and shows "UNPAIRED PC" briefly). With pairing off it accepts both
 forms and streams `CPM1`.
+
+**Challenge and response** (device 0.7.0 and later, pairing on). A v2
+discovery proves knowledge of the code, but not that its sender is live:
+anyone on the network can record one and send it again. So the device
+answers a valid v2 discovery with a challenge, unless the sender is already
+its receiver and has answered:
+
+```
+challenge (33 bytes), device -> client
+ 0..16  "CARDMIC_CHALLENGE"
+17..32  challenge   16 random bytes
+
+response (50 bytes), client -> device, from the socket that sent discovery
+ 0..17  "CPADV_MIC_RESPONSE"
+18..33  challenge   as received
+34..49  tag         HMAC-SHA256(mac_key, bytes 0..33 | device IPv4 | device port)[..16]
+```
+
+The device IPv4 (4 bytes) and port (2 bytes, big-endian) are the address the
+challenge came from, as the client sees it. The device checks the tag with
+its own address, so a client that answers a challenge someone else relayed to
+it computes a tag the device does not accept. A challenge is valid for 5 s,
+from the address it was sent to, and answers once; the device sends a sender
+its challenge at most every 500 ms and keeps the last four.
+
+The session rules that follow:
+
+- A sender that has **answered** takes the stream from a receiver that has
+  not, but not from another that has (the first-receiver lock holds between
+  answered receivers).
+- A sender that has **not answered**, a recording or an app from before
+  0.7.0, still gets the stream when no one else has it, encrypted as always,
+  so older apps keep working. It loses it as soon as an answering computer
+  asks.
+- The device's name (section 1) goes only to a receiver that has answered.
+
+Clients from before 0.7.0 ignore the challenge; devices from before 0.7.0
+never send one, and a 0.7.0 client works with them as before.
 
 **CPM2** (672 bytes), encrypted audio:
 

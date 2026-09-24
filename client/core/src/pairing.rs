@@ -26,6 +26,19 @@
 //!
 //! The code carries 60 bits and the key derivation is deliberately slow, so a
 //! recording of the traffic cannot practically be brute-forced back to it.
+//!
+//! A v2 discovery can be recorded and sent again by anyone on the network. So
+//! from 0.7.0 the device also challenges the sender, and a client proves it is
+//! there, now, by answering:
+//!
+//! ```text
+//! challenge (33 bytes), device -> client: "CARDMIC_CHALLENGE" | challenge[16]
+//! response  (50 bytes), client -> device: "CPADV_MIC_RESPONSE" | challenge[16]
+//!     | HMAC(mac_key, first 34 bytes | device IPv4[4] | device port[2], big-endian)[..16]
+//! ```
+//!
+//! The device's address is in the MAC so that a client answering a challenge
+//! relayed by someone else computes an answer the device will not accept.
 
 use crate::protocol::{Packet, Version, CPM2_LEN, SAMPLES_PER_PACKET, SAMPLE_RATE};
 use aes_gcm::aead::generic_array::GenericArray;
@@ -33,6 +46,7 @@ use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::Aes128Gcm;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::net::SocketAddrV4;
 
 /// Characters in a pairing code, without dashes.
 pub const CODE_LEN: usize = 12;
@@ -46,6 +60,30 @@ pub const ROUNDS: u32 = 20_000;
 pub const DISCOVERY_V2_PREFIX: &[u8] = b"CPADV_MIC_DISCOVER_V2";
 /// Wire size of a v2 discovery packet.
 pub const DISCOVERY_V2_LEN: usize = 45;
+
+/// A device asking a paired client to prove it is live (0.7.0 and later).
+pub const CHALLENGE_PREFIX: &[u8] = b"CARDMIC_CHALLENGE";
+pub const CHALLENGE_LEN: usize = 33;
+/// The client's answer to a challenge.
+pub const RESPONSE_PREFIX: &[u8] = b"CPADV_MIC_RESPONSE";
+pub const RESPONSE_LEN: usize = 50;
+
+/// The challenge in a `CARDMIC_CHALLENGE` datagram.
+pub fn parse_challenge(buf: &[u8]) -> Option<[u8; 16]> {
+    (buf.len() == CHALLENGE_LEN && buf.starts_with(CHALLENGE_PREFIX)).then(|| {
+        let mut c = [0u8; 16];
+        c.copy_from_slice(&buf[CHALLENGE_PREFIX.len()..]);
+        c
+    })
+}
+
+/// A `CARDMIC_CHALLENGE` datagram (device side; the synthetic device).
+pub fn challenge_message(challenge: &[u8; 16]) -> [u8; CHALLENGE_LEN] {
+    let mut out = [0u8; CHALLENGE_LEN];
+    out[..CHALLENGE_PREFIX.len()].copy_from_slice(CHALLENGE_PREFIX);
+    out[CHALLENGE_PREFIX.len()..].copy_from_slice(challenge);
+    out
+}
 
 const HEADER_LEN: usize = 16;
 const TAG_LEN: usize = 16;
@@ -137,12 +175,42 @@ impl Keys {
     }
 
     fn discovery_tag(&self, first29: &[u8]) -> [u8; 16] {
+        self.tag(&[first29])
+    }
+
+    fn tag(&self, parts: &[&[u8]]) -> [u8; 16] {
         let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.mac).expect("HMAC takes any key length");
-        mac.update(first29);
+        for part in parts {
+            mac.update(part);
+        }
         let full = mac.finalize().into_bytes();
         let mut tag = [0u8; 16];
         tag.copy_from_slice(&full[..16]);
         tag
+    }
+
+    fn response_tag(&self, first34: &[u8], device: SocketAddrV4) -> [u8; 16] {
+        self.tag(&[first34, &device.ip().octets(), &device.port().to_be_bytes()])
+    }
+
+    /// The answer to a device's challenge. `device` is the address the
+    /// challenge came from, as this computer sees it.
+    pub fn response(&self, challenge: &[u8; 16], device: SocketAddrV4) -> [u8; RESPONSE_LEN] {
+        let mut out = [0u8; RESPONSE_LEN];
+        out[..18].copy_from_slice(RESPONSE_PREFIX);
+        out[18..34].copy_from_slice(challenge);
+        let tag = self.response_tag(&out[..34], device);
+        out[34..].copy_from_slice(&tag);
+        out
+    }
+
+    /// Device side: is this the answer to `challenge`, for a device at `device`?
+    pub fn verify_response(&self, buf: &[u8], challenge: &[u8; 16], device: SocketAddrV4) -> bool {
+        if buf.len() != RESPONSE_LEN || &buf[..18] != RESPONSE_PREFIX || &buf[18..34] != challenge {
+            return false;
+        }
+        let tag = self.response_tag(&buf[..34], device);
+        tag.iter().zip(&buf[34..]).fold(0u8, |d, (a, b)| d | (a ^ b)) == 0
     }
 
     /// A v2 discovery packet. `nonce` only needs to vary between packets.
@@ -248,6 +316,44 @@ mod tests {
         let d = Keys::derive(CODE).discovery([0, 1, 2, 3, 4, 5, 6, 7]);
         assert_eq!(&d[..21], DISCOVERY_V2_PREFIX);
         assert_eq!(hex(&d[29..]), "5e61da59a626d79b27d16ff93799269d");
+    }
+
+    #[test]
+    fn response_matches_reference() {
+        let k = Keys::derive(CODE);
+        let challenge: [u8; 16] = std::array::from_fn(|i| i as u8);
+        let device: SocketAddrV4 = "192.168.1.42:41234".parse().unwrap();
+        let r = k.response(&challenge, device);
+        assert_eq!(&r[..18], RESPONSE_PREFIX);
+        assert_eq!(&r[18..34], &challenge);
+        assert_eq!(hex(&r[34..]), "0262629dc2364fda0fdc0aeb4b27542c");
+        assert!(k.verify_response(&r, &challenge, device));
+    }
+
+    #[test]
+    fn a_response_is_bound_to_its_challenge_its_device_and_the_code() {
+        let k = Keys::derive(CODE);
+        let challenge = [7u8; 16];
+        let device: SocketAddrV4 = "192.168.1.42:41234".parse().unwrap();
+        let r = k.response(&challenge, device);
+        // Answered for someone else's address: a challenge relayed to this
+        // computer by another host yields nothing the device accepts.
+        let relayer: SocketAddrV4 = "192.168.1.66:41234".parse().unwrap();
+        assert!(!k.verify_response(&k.response(&challenge, relayer), &challenge, device));
+        assert!(!k.verify_response(&r, &[8u8; 16], device), "another challenge");
+        assert!(!Keys::derive("7K2M9QXB4TPB").verify_response(&r, &challenge, device), "another code");
+        let mut tampered = r;
+        tampered[40] ^= 1;
+        assert!(!k.verify_response(&tampered, &challenge, device));
+    }
+
+    #[test]
+    fn challenges_parse_only_as_themselves() {
+        let msg = challenge_message(&[3u8; 16]);
+        assert_eq!(msg.len(), CHALLENGE_LEN);
+        assert_eq!(parse_challenge(&msg), Some([3u8; 16]));
+        assert_eq!(parse_challenge(&msg[..32]), None);
+        assert_eq!(parse_challenge(b"CARDMIC_PAIRING_REQUIRED"), None);
     }
 
     #[test]

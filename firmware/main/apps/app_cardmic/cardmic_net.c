@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_random.h"
 #include "mbedtls/gcm.h"
 #include "mbedtls/md.h"
@@ -157,6 +158,104 @@ static bool tags_equal(const uint8_t *a, const uint8_t *b, size_t n)
     return d == 0;
 }
 
+// Challenge and response (PROTOCOL.md, section 3). A v2 discovery can be
+// recorded and sent again by anyone on the network, so a sender proves it is
+// live by answering a random challenge. One that has not answered (a
+// recording, or an app from before 0.7.0) holds the stream only until one that
+// has comes along, and is not told the device's name.
+static const char CHALLENGE[] = "CARDMIC_CHALLENGE";  // + challenge[16]
+static const char RESPONSE[] = "CPADV_MIC_RESPONSE";  // + challenge[16] + hmac[16]
+#define RESPONSE_PREFIX_LEN (sizeof(RESPONSE) - 1)
+#define CHALLENGE_BYTES 16
+#define RESPONSE_LEN (RESPONSE_PREFIX_LEN + CHALLENGE_BYTES + 16)
+#define CHALLENGE_LIFE_MS 5000U
+#define CHALLENGE_EVERY_MS 500U
+#define MAX_CHALLENGES 4
+
+typedef struct {
+    bool used;
+    struct sockaddr_in to;
+    uint8_t bytes[CHALLENGE_BYTES];
+    TickType_t issued;
+    TickType_t sent;
+} challenge_t;
+
+static bool same_addr(const struct sockaddr_in *a, const struct sockaddr_in *b)
+{
+    return a->sin_addr.s_addr == b->sin_addr.s_addr && a->sin_port == b->sin_port;
+}
+
+// Send `to` its challenge: a new one, or again the one it has, at most every
+// CHALLENGE_EVERY_MS. The table holds the last few senders' challenges.
+static void challenge(int sock, challenge_t *table, const struct sockaddr_in *to)
+{
+    const TickType_t now = xTaskGetTickCount();
+    challenge_t *slot = NULL;
+    for (int i = 0; i < MAX_CHALLENGES; ++i) {
+        if (table[i].used && now - table[i].issued > pdMS_TO_TICKS(CHALLENGE_LIFE_MS)) table[i].used = false;
+        if (table[i].used && same_addr(&table[i].to, to)) slot = &table[i];
+    }
+    if (slot) {
+        if (now - slot->sent < pdMS_TO_TICKS(CHALLENGE_EVERY_MS)) return;
+    } else {
+        for (int i = 0; i < MAX_CHALLENGES && !slot; ++i) {
+            if (!table[i].used) slot = &table[i];
+        }
+        if (!slot) {  // all taken: the oldest goes
+            slot = &table[0];
+            for (int i = 1; i < MAX_CHALLENGES; ++i) {
+                if (now - table[i].issued > now - slot->issued) slot = &table[i];
+            }
+        }
+        slot->used = true;
+        slot->to = *to;
+        esp_fill_random(slot->bytes, CHALLENGE_BYTES);
+        slot->issued = now;
+    }
+    slot->sent = now;
+    uint8_t msg[sizeof(CHALLENGE) - 1 + CHALLENGE_BYTES];
+    memcpy(msg, CHALLENGE, sizeof(CHALLENGE) - 1);
+    memcpy(msg + sizeof(CHALLENGE) - 1, slot->bytes, CHALLENGE_BYTES);
+    sendto(sock, msg, sizeof(msg), 0, (const struct sockaddr *)to, sizeof(*to));
+}
+
+// Is this the answer to the challenge sent to `from`? The MAC covers this
+// device's own address, so an answer a paired computer gave to a challenge
+// relayed to it by someone else does not pass. Each challenge answers once.
+static bool answered(const uint8_t *buf, ssize_t n, const struct sockaddr_in *from, challenge_t *table,
+                     const uint8_t *mac_key)
+{
+    if (n != (ssize_t)RESPONSE_LEN || memcmp(buf, RESPONSE, RESPONSE_PREFIX_LEN) != 0) {
+        return false;
+    }
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ip;
+    if (!sta || esp_netif_get_ip_info(sta, &ip) != ESP_OK) {
+        return false;
+    }
+    const TickType_t now = xTaskGetTickCount();
+    for (int i = 0; i < MAX_CHALLENGES; ++i) {
+        challenge_t *c = &table[i];
+        if (!c->used || !same_addr(&c->to, from) || now - c->issued > pdMS_TO_TICKS(CHALLENGE_LIFE_MS) ||
+            memcmp(c->bytes, buf + RESPONSE_PREFIX_LEN, CHALLENGE_BYTES) != 0) {
+            continue;
+        }
+        uint8_t msg[RESPONSE_PREFIX_LEN + CHALLENGE_BYTES + 6];
+        memcpy(msg, buf, RESPONSE_PREFIX_LEN + CHALLENGE_BYTES);
+        memcpy(msg + RESPONSE_PREFIX_LEN + CHALLENGE_BYTES, &ip.ip.addr, 4);  // network byte order
+        msg[sizeof(msg) - 2] = PORT >> 8;
+        msg[sizeof(msg) - 1] = PORT & 0xFF;
+        uint8_t mac[32];
+        const mbedtls_md_info_t *sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+        if (mbedtls_md_hmac(sha256, mac_key, 16, msg, sizeof(msg), mac) == 0 &&
+            tags_equal(mac, buf + RESPONSE_PREFIX_LEN + CHALLENGE_BYTES, 16)) {
+            c->used = false;
+            return true;
+        }
+    }
+    return false;
+}
+
 typedef enum { DISCOVERY_NONE, DISCOVERY_ACCEPTED, DISCOVERY_REFUSED } discovery_t;
 
 // Is this a discovery packet, and may its sender receive audio? Sets
@@ -213,6 +312,9 @@ static void net_task(void *arg)
     struct sockaddr_in receiver = {0};
     TickType_t last_seen = 0;
     TickType_t name_told = 0;
+    bool name_due = false;
+    bool verified = false;  // the receiver answered a challenge (pairing on)
+    challenge_t challenges[MAX_CHALLENGES] = {0};
     uint32_t sequence = 0;
     packet_t pkt;
     memcpy(pkt.magic, "CPM1", 4);
@@ -242,10 +344,12 @@ static void net_task(void *arg)
             if (pair_required) mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, enc_key, 128);
             memset(enc_key, 0, sizeof(enc_key));
             s_receiver_active = false;
+            verified = false;
+            memset(challenges, 0, sizeof(challenges));
         }
 
         // Discovery doubles as the keepalive.
-        uint8_t buf[48];
+        uint8_t buf[64];
         struct sockaddr_in from;
         socklen_t from_len = sizeof(from);
         ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr *)&from, &from_len);
@@ -292,10 +396,9 @@ static void net_task(void *arg)
                 sendto(sock, denied, sizeof(denied) - 1, 0, (struct sockaddr *)&from, sizeof(from));
             }
         } else if (discovery == DISCOVERY_ACCEPTED) {
-            bool same = s_receiver_active && from.sin_addr.s_addr == receiver.sin_addr.s_addr &&
-                        from.sin_port == receiver.sin_port;
-            // First-receiver lock: while a session is live, ignore discovery
-            // from anyone else instead of handing them the stream.
+            bool same = s_receiver_active && same_addr(&from, &receiver);
+            // First-receiver lock: while a session is live, discovery from
+            // anyone else does not hand them the stream.
             if (!s_receiver_active || same) {
                 if (!same) {
                     sequence = 0;
@@ -305,28 +408,59 @@ static void net_task(void *arg)
                     encrypted = session_encrypted;
                     s_session_encrypted = encrypted;
                     xQueueReset(s_queue);
+                    verified = !pair_required;
+                    name_due = true;
                 }
                 receiver = from;
                 s_receiver_addr = from.sin_addr.s_addr;
                 s_receiver_active = true;
                 last_seen = xTaskGetTickCount();
-                // Say who this is: on a new session, then now and then, so a
-                // renamed Cardputer shows its new name without reconnecting.
-                if (!same || last_seen - name_told > pdMS_TO_TICKS(NAME_EVERY_MS)) {
-                    char name[sizeof(s_name)];
-                    taskENTER_CRITICAL(&s_pair_lock);
-                    memcpy(name, s_name, sizeof(name));
-                    taskEXIT_CRITICAL(&s_pair_lock);
-                    char msg[sizeof(NAME_PREFIX) + sizeof(name)];
-                    int len = snprintf(msg, sizeof(msg), "%s%s", NAME_PREFIX, name);
-                    sendto(sock, msg, len, 0, (struct sockaddr *)&receiver, sizeof(receiver));
-                    name_told = last_seen;
-                }
             }
+            // With pairing on, every sender but a receiver that has answered is
+            // asked to prove it is live; 0.7.0 apps answer.
+            if (pair_required && !(s_receiver_active && same_addr(&from, &receiver) && verified)) {
+                challenge(sock, challenges, &from);
+            }
+        } else if (pair_required && n > 0 && answered(buf, n, &from, challenges, mac_key)) {
+            // A live paired computer. It takes the stream from a receiver that
+            // has not answered, but not from another that has.
+            bool same = s_receiver_active && same_addr(&from, &receiver);
+            if (!s_receiver_active || same || !verified) {
+                if (!same) {
+                    sequence = 0;
+                    pkt2.session = esp_random();
+                    encrypted = true;
+                    s_session_encrypted = true;
+                    xQueueReset(s_queue);
+                }
+                receiver = from;
+                s_receiver_addr = from.sin_addr.s_addr;
+                s_receiver_active = true;
+                last_seen = xTaskGetTickCount();
+                verified = true;
+                name_due = true;
+            }
+        }
+
+        // Say who this is to a receiver that may know (with pairing on, one
+        // that answered a challenge): on a new session, then now and then, so
+        // a renamed Cardputer shows its new name without reconnecting.
+        if (s_receiver_active && verified &&
+            (name_due || xTaskGetTickCount() - name_told > pdMS_TO_TICKS(NAME_EVERY_MS))) {
+            char name[sizeof(s_name)];
+            taskENTER_CRITICAL(&s_pair_lock);
+            memcpy(name, s_name, sizeof(name));
+            taskEXIT_CRITICAL(&s_pair_lock);
+            char msg[sizeof(NAME_PREFIX) + sizeof(name)];
+            int len = snprintf(msg, sizeof(msg), "%s%s", NAME_PREFIX, name);
+            sendto(sock, msg, len, 0, (struct sockaddr *)&receiver, sizeof(receiver));
+            name_told = xTaskGetTickCount();
+            name_due = false;
         }
 
         if (s_receiver_active && (xTaskGetTickCount() - last_seen) > pdMS_TO_TICKS(RECEIVER_TIMEOUT_MS)) {
             s_receiver_active = false;
+            verified = false;
             xQueueReset(s_queue);
         }
 
