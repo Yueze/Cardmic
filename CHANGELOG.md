@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 — 2026-09-24
+
+App fixes; the firmware is unchanged apart from its version.
 
 - **App: the version lives in the footer only**, always shown there, with
   where updates stand; the title bar is just the name.

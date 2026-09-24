@@ -193,7 +193,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cardmic-audio",
  "cardmic-core",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic-audio"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cardmic-core",
  "cpal",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "aes-gcm",
  "hmac",
@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "cardmic-engine"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cardmic-audio",
  "cardmic-core",
@@ -232,14 +232,14 @@ dependencies = [
 
 [[package]]
 name = "cardmic-synth"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cardmic-core",
 ]
 
 [[package]]
 name = "cardmic-tray"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "block2",
  "cardmic-audio",
