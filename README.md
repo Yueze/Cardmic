@@ -187,6 +187,7 @@ IMU, LoRa and GPS apps are hidden, since that hardware is not there.
 | `Enter` | Pairing | Turn pairing on or off |
 | `N` | Pairing | New code (unpairs every computer) |
 | `Enter` | About | Check for an update, then install it |
+| `Enter` | Name | Save the name (empty: back to Cardmic-XXXX) |
 | `Tab` | Password | Show or hide |
 | `Esc` | Settings pages | Back |
 | `G0` | Anywhere | Back; on the main screen, exit to the launcher |
