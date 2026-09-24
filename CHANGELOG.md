@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **App: the lock follows the link.** Turning pairing on while a computer is
+  receiving encrypts the stream a moment later; the app now shows the lock
+  then, instead of keeping the first, still-plain packet's "unencrypted"
+  until it reconnects.
+
 ## 0.6.1 — 2026-09-23
 
 - **Pairing page, reworded.** It names both ways to pair as the app does:

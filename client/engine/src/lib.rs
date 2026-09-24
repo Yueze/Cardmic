@@ -359,12 +359,15 @@ impl Receiver {
                         Err(_) => continue, // not ours: a LAN carries plenty of other traffic
                     };
 
+                    let encrypted = packet.version == Version::Cpm2;
                     if device != Some(from) {
-                        let encrypted = packet.version == Version::Cpm2;
                         self.lock().pairing_refused = false;
                         device = Some(from);
                         sequencer.reset();
                         self.stream.resync();
+                        self.lock().link = Link::Connected { addr: from, encrypted };
+                        on_event(Event::Connected { addr: from, encrypted });
+                    } else if encryption_changed(&self.lock().link, encrypted) {
                         self.lock().link = Link::Connected { addr: from, encrypted };
                         on_event(Event::Connected { addr: from, encrypted });
                     }
@@ -458,4 +461,29 @@ fn discovery_nonce(counter: &mut u64) -> [u8; 8] {
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
     (t ^ counter.rotate_left(32)).to_le_bytes()
+}
+
+/// The same Cardputer switched to or from encryption mid-stream: pairing was
+/// turned on or off on it while this computer was receiving. The first
+/// packet after turning pairing on can still be plain, while the device
+/// derives its keys, so the link is not judged by the first packet alone.
+fn encryption_changed(link: &Link, encrypted: bool) -> bool {
+    matches!(link, Link::Connected { encrypted: was, .. } if *was != encrypted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_link_follows_the_device_into_encryption() {
+        let addr: SocketAddr = "192.168.1.42:41234".parse().unwrap();
+        let plain = Link::Connected { addr, encrypted: false };
+        let sealed = Link::Connected { addr, encrypted: true };
+        assert!(encryption_changed(&plain, true), "pairing turned on while receiving");
+        assert!(encryption_changed(&sealed, false), "pairing turned off while receiving");
+        assert!(!encryption_changed(&plain, false));
+        assert!(!encryption_changed(&sealed, true));
+        assert!(!encryption_changed(&Link::Searching, true), "a new device is handled as a new connection");
+    }
 }
