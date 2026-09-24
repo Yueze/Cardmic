@@ -50,6 +50,7 @@ pub struct Updater {
 impl Updater {
     pub fn new() -> Updater {
         cleanup_old_bundles();
+        cleanup_downloads();
         Updater {
             state: Arc::new(Mutex::new(State::Idle)),
             staged: Arc::new(Mutex::new(None)),
@@ -199,6 +200,18 @@ pub fn version_key(v: &str) -> (u64, u64, u64, u8) {
     };
     let mut n = core.split('.').map(|p| p.parse::<u64>().unwrap_or(0));
     (n.next().unwrap_or(0), n.next().unwrap_or(0), n.next().unwrap_or(0), if pre { 0 } else { 1 })
+}
+
+/// Downloads of the version this app is, or older ones: installed or passed
+/// over. (On Windows the installer may still be finishing when the new app
+/// starts; its folder then goes the next time.)
+fn cleanup_downloads() {
+    let Some(entries) = cache_dir().and_then(|d| std::fs::read_dir(d).ok()) else { return };
+    for e in entries.flatten() {
+        if version_key(&e.file_name().to_string_lossy()) <= version_key(VERSION) {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 fn cache_dir() -> Option<PathBuf> {

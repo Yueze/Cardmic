@@ -279,12 +279,49 @@ mod imp {
 
     pub const PRIVACY_URL: &str = "ms-settings:privacy-microphone";
 
+    /// Windows' microphone privacy switches: for the device, for this user,
+    /// and for desktop apps. Any of them off and recording gets silence, so
+    /// say so instead of reporting that no loopback works.
     pub fn mic_access() -> super::MicAccess {
-        super::MicAccess::Granted
+        const STORE: &str =
+            "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone";
+        let denied = |root: HKEY, key: &str| read_string(root, key, "Value").is_some_and(|v| v.eq_ignore_ascii_case("Deny"));
+        if denied(HKEY_LOCAL_MACHINE, STORE)
+            || denied(HKEY_CURRENT_USER, STORE)
+            || denied(HKEY_CURRENT_USER, &format!("{STORE}\\NonPackaged"))
+        {
+            super::MicAccess::Denied
+        } else {
+            super::MicAccess::Granted
+        }
     }
 
+    /// Windows asks no question: the switches are in Settings.
     pub fn request_mic_access(answered: impl Fn(bool) + Send + Sync + 'static) {
-        answered(true)
+        answered(mic_access() == super::MicAccess::Granted)
+    }
+
+    fn read_string(root: HKEY, key: &str, name: &str) -> Option<String> {
+        let key = wide(key);
+        let name = wide(name);
+        let mut buf = [0u16; 64];
+        let mut size = std::mem::size_of_val(&buf) as u32;
+        let rc = unsafe {
+            RegGetValueW(
+                root,
+                key.as_ptr(),
+                name.as_ptr(),
+                RRF_RT_REG_SZ,
+                null_mut(),
+                buf.as_mut_ptr() as *mut c_void,
+                &mut size,
+            )
+        };
+        if rc != ERROR_SUCCESS {
+            return None;
+        }
+        let len = (size as usize / 2).min(buf.len());
+        Some(String::from_utf16_lossy(&buf[..len]).trim_end_matches('\0').to_string())
     }
 
     pub fn login_item_enabled() -> bool {
