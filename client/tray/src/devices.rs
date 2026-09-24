@@ -25,8 +25,11 @@ pub struct Devices {
     pub loopbacks: Vec<Candidate>,
 }
 
-/// The firmware's USB vendor ID (TinyUSB's placeholder until a registered one).
-const CARDMIC_VID: u16 = 0xCAFE;
+/// USB vendor IDs a Cardputer running Cardmic can have: TinyUSB's placeholder,
+/// which the firmware uses today, and Espressif's, for product IDs allocated
+/// from its list. The identity report itself ("CM1;...") tells a Cardmic from
+/// any other Espressif device.
+const CARDMIC_VIDS: [u16; 2] = [0xCAFE, 0x303A];
 const ID_USAGE_PAGE: u16 = 0xFF00;
 const ID_REPORT: u8 = 3;
 
@@ -53,12 +56,18 @@ fn is_cardmic_mic(device: &str, name: Option<&str>) -> bool {
 
 fn read_identity(api: &mut HidApi) -> Option<UsbIdentity> {
     api.refresh_devices().ok()?;
-    let info = api.device_list().find(|d| d.vendor_id() == CARDMIC_VID && d.usage_page() == ID_USAGE_PAGE)?;
-    let device = info.open_device(api).ok()?;
-    let mut buf = [0u8; 64];
-    buf[0] = ID_REPORT;
-    let n = device.get_feature_report(&mut buf).ok()?;
-    parse_identity(&String::from_utf8_lossy(&buf[1..n.max(1)]))
+    let candidates: Vec<_> = api
+        .device_list()
+        .filter(|d| CARDMIC_VIDS.contains(&d.vendor_id()) && d.usage_page() == ID_USAGE_PAGE)
+        .cloned()
+        .collect();
+    candidates.iter().find_map(|info| {
+        let device = info.open_device(api).ok()?;
+        let mut buf = [0u8; 64];
+        buf[0] = ID_REPORT;
+        let n = device.get_feature_report(&mut buf).ok()?;
+        parse_identity(&String::from_utf8_lossy(&buf[1..n.max(1)]))
+    })
 }
 
 /// `CM1;pair=1;code=7K2M9QXB4TPA;name=Cardmic-05AC;fw=0.6.0`

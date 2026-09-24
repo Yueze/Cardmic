@@ -173,6 +173,11 @@ pub fn log(line: &str) {
 
 /// `--diagnose`: what the app would see, for support and testing.
 pub fn diagnose() {
+    // A Windows GUI app has no console: print into the one it was started from.
+    #[cfg(target_os = "windows")]
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS);
+    }
     let mut hid = hidapi::HidApi::new().ok();
     let d = devices::scan(hid.as_mut());
     println!("cardmic-app {VERSION}");
