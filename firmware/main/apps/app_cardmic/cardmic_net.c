@@ -171,6 +171,11 @@ static const char RESPONSE[] = "CPADV_MIC_RESPONSE";  // + challenge[16] + hmac[
 #define CHALLENGE_LIFE_MS 5000U
 #define CHALLENGE_EVERY_MS 500U
 #define MAX_CHALLENGES 4
+// A receiver that answered is asked again every REVERIFY_MS, and counts as
+// not answered after VERIFIED_FOR_MS without an answer, so a computer that
+// left cannot be kept "answered" by someone repeating its discovery.
+#define REVERIFY_MS 20000U
+#define VERIFIED_FOR_MS 30000U
 
 typedef struct {
     bool used;
@@ -314,6 +319,7 @@ static void net_task(void *arg)
     TickType_t name_told = 0;
     bool name_due = false;
     bool verified = false;  // the receiver answered a challenge (pairing on)
+    TickType_t verified_at = 0;
     challenge_t challenges[MAX_CHALLENGES] = {0};
     uint32_t sequence = 0;
     packet_t pkt;
@@ -417,8 +423,10 @@ static void net_task(void *arg)
                 last_seen = xTaskGetTickCount();
             }
             // With pairing on, every sender but a receiver that has answered is
-            // asked to prove it is live; 0.7.0 apps answer.
-            if (pair_required && !(s_receiver_active && same_addr(&from, &receiver) && verified)) {
+            // asked to prove it is live, and that one again now and then;
+            // 0.7.0 apps answer.
+            const bool answered_receiver = s_receiver_active && same_addr(&from, &receiver) && verified;
+            if (pair_required && (!answered_receiver || xTaskGetTickCount() - verified_at > pdMS_TO_TICKS(REVERIFY_MS))) {
                 challenge(sock, challenges, &from);
             }
         } else if (pair_required && n > 0 && answered(buf, n, &from, challenges, mac_key)) {
@@ -438,6 +446,7 @@ static void net_task(void *arg)
                 s_receiver_active = true;
                 last_seen = xTaskGetTickCount();
                 verified = true;
+                verified_at = last_seen;
                 name_due = true;
             }
         }
@@ -456,6 +465,10 @@ static void net_task(void *arg)
             sendto(sock, msg, len, 0, (struct sockaddr *)&receiver, sizeof(receiver));
             name_told = xTaskGetTickCount();
             name_due = false;
+        }
+
+        if (verified && pair_required && xTaskGetTickCount() - verified_at > pdMS_TO_TICKS(VERIFIED_FOR_MS)) {
+            verified = false;  // takes over like any sender that has not answered
         }
 
         if (s_receiver_active && (xTaskGetTickCount() - last_seen) > pdMS_TO_TICKS(RECEIVER_TIMEOUT_MS)) {

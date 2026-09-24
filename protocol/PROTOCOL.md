@@ -128,7 +128,11 @@ challenge came from, as the client sees it. The device checks the tag with
 its own address, so a client that answers a challenge someone else relayed to
 it computes a tag the device does not accept. A challenge is valid for 5 s,
 from the address it was sent to, and answers once; the device sends a sender
-its challenge at most every 500 ms and keeps the last four.
+its challenge at most every 500 ms and keeps the last four. It challenges a
+receiver that has answered again every 20 s, and counts it as not answered
+after 30 s without an answer, so a computer that left cannot be kept
+"answered" by someone repeating its discovery from its address. A client
+answers at most 8 challenges a second, since anyone can send one.
 
 The session rules that follow:
 

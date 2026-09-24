@@ -294,6 +294,7 @@ impl Receiver {
         let mut hinted = false;
         let mut warned_plain = false;
         let mut named_by: Option<SocketAddr> = None;
+        let mut answers = Budget::new(ANSWERS_PER_SECOND);
         let mut nonce_counter = 0u64;
         let mut peak = 0.0f32;
         let mut buf = [0u8; 2048];
@@ -343,9 +344,12 @@ impl Receiver {
                     }
                     if let Some(challenge) = parse_challenge(data) {
                         // A Cardputer (0.7.0 and later) asking this computer to
-                        // prove it knows the code now, not in a recording.
-                        if let (Some(keys), SocketAddr::V4(device)) = (self.keys.as_ref(), from) {
-                            let _ = self.socket.send_to(&keys.response(&challenge, device), from);
+                        // prove it knows the code now, not in a recording. A
+                        // few a second at most: anyone can send a challenge.
+                        if answers.allow(Instant::now()) {
+                            if let (Some(keys), SocketAddr::V4(device)) = (self.keys.as_ref(), from) {
+                                let _ = self.socket.send_to(&keys.response(&challenge, device), from);
+                            }
                         }
                         continue;
                     }
@@ -495,6 +499,31 @@ fn discovery_nonce(counter: &mut u64) -> [u8; 8] {
     (t ^ counter.rotate_left(32)).to_le_bytes()
 }
 
+/// Challenges this computer answers in a second, at most.
+const ANSWERS_PER_SECOND: u32 = 8;
+
+/// At most `per_second` events in each second.
+struct Budget {
+    per_second: u32,
+    window: Option<Instant>,
+    used: u32,
+}
+
+impl Budget {
+    fn new(per_second: u32) -> Budget {
+        Budget { per_second, window: None, used: 0 }
+    }
+
+    fn allow(&mut self, now: Instant) -> bool {
+        if self.window.is_none_or(|w| now.duration_since(w) >= Duration::from_secs(1)) {
+            self.window = Some(now);
+            self.used = 0;
+        }
+        self.used += 1;
+        self.used <= self.per_second
+    }
+}
+
 /// The name in a `CARDMIC_NAME <name>` message, as printable text of at most
 /// 32 characters; `None` for anything else.
 fn device_name_message(data: &[u8]) -> Option<String> {
@@ -515,6 +544,15 @@ fn encryption_changed(link: &Link, encrypted: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn challenges_are_answered_a_few_a_second() {
+        let start = Instant::now();
+        let mut b = Budget::new(8);
+        let allowed = (0..20).filter(|_| b.allow(start)).count();
+        assert_eq!(allowed, 8, "a burst is cut at the budget");
+        assert!(b.allow(start + Duration::from_millis(1000)), "the next second has a fresh budget");
+    }
 
     #[test]
     fn a_cardputer_says_its_name() {

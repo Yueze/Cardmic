@@ -51,6 +51,11 @@ struct Config {
 const CHALLENGE_LIFE: Duration = Duration::from_secs(5);
 /// A sender is sent its challenge again at most this often.
 const CHALLENGE_EVERY: Duration = Duration::from_millis(500);
+/// A receiver that answered is asked again this often...
+const REVERIFY_EVERY: Duration = Duration::from_secs(20);
+/// ...and counts as not answered if it has not for this long, so a computer
+/// that left cannot be kept "answered" by someone repeating its discovery.
+const VERIFIED_FOR: Duration = Duration::from_secs(30);
 
 struct Challenge {
     to: SocketAddr,
@@ -141,6 +146,7 @@ fn main() {
     let challenging = cfg.keys.is_some() && !cfg.legacy;
     let mut receiver: Option<SocketAddr> = None;
     let mut verified = false; // the receiver answered a challenge
+    let mut verified_at = Instant::now();
     let mut challenges: Vec<Challenge> = Vec::new();
     let mut random = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -194,6 +200,7 @@ fn main() {
                     }
                     receiver = Some(from);
                     verified = true;
+                    verified_at = Instant::now();
                     name_told = None;
                     last_discovery = Instant::now();
                 }
@@ -206,7 +213,8 @@ fn main() {
                 if receiver == Some(from) {
                     last_discovery = Instant::now();
                 }
-                if challenging && !(receiver == Some(from) && verified) {
+                let due = receiver == Some(from) && verified && verified_at.elapsed() >= REVERIFY_EVERY;
+                if challenging && (!(receiver == Some(from) && verified) || due) {
                     challenges.retain(|c| c.issued.elapsed() < CHALLENGE_LIFE);
                     let now = Instant::now();
                     let pos = challenges.iter().position(|c| c.to == from);
@@ -236,6 +244,11 @@ fn main() {
                     }
                 }
             }
+        }
+
+        if verified && challenging && verified_at.elapsed() > VERIFIED_FOR {
+            println!("receiver {} has not answered for {VERIFIED_FOR:?}", receiver.map_or(String::new(), |r| r.to_string()));
+            verified = false;
         }
 
         // Rule 2: no keepalive for RECEIVER_TIMEOUT means the receiver is gone.
