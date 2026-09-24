@@ -72,6 +72,11 @@ static struct {
     uint32_t generation;
 } s_pair;
 static volatile uint32_t s_unpaired_at;  // tick of the last discovery refused for lack of pairing
+
+// The Cardputer's name, told to the computer it streams to (see PROTOCOL.md).
+static const char NAME_PREFIX[] = "CARDMIC_NAME ";
+#define NAME_EVERY_MS 2000
+static char s_name[40] = "Cardmic";
 static volatile bool s_session_encrypted;
 
 static QueueHandle_t s_queue;
@@ -207,6 +212,7 @@ static void net_task(void *arg)
 
     struct sockaddr_in receiver = {0};
     TickType_t last_seen = 0;
+    TickType_t name_told = 0;
     uint32_t sequence = 0;
     packet_t pkt;
     memcpy(pkt.magic, "CPM1", 4);
@@ -304,6 +310,18 @@ static void net_task(void *arg)
                 s_receiver_addr = from.sin_addr.s_addr;
                 s_receiver_active = true;
                 last_seen = xTaskGetTickCount();
+                // Say who this is: on a new session, then now and then, so a
+                // renamed Cardputer shows its new name without reconnecting.
+                if (!same || last_seen - name_told > pdMS_TO_TICKS(NAME_EVERY_MS)) {
+                    char name[sizeof(s_name)];
+                    taskENTER_CRITICAL(&s_pair_lock);
+                    memcpy(name, s_name, sizeof(name));
+                    taskEXIT_CRITICAL(&s_pair_lock);
+                    char msg[sizeof(NAME_PREFIX) + sizeof(name)];
+                    int len = snprintf(msg, sizeof(msg), "%s%s", NAME_PREFIX, name);
+                    sendto(sock, msg, len, 0, (struct sockaddr *)&receiver, sizeof(receiver));
+                    name_told = last_seen;
+                }
             }
         }
 
@@ -393,6 +411,13 @@ void cardmic_net_push(const int16_t *samples, size_t count)
             s_pending_count = 0;
         }
     }
+}
+
+void cardmic_net_set_name(const char *name)
+{
+    taskENTER_CRITICAL(&s_pair_lock);
+    strlcpy(s_name, name, sizeof(s_name));
+    taskEXIT_CRITICAL(&s_pair_lock);
 }
 
 bool cardmic_net_receiver_active(void) { return s_receiver_active; }

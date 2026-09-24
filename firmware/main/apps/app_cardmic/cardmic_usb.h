@@ -17,6 +17,8 @@ extern "C" {
 #endif
 
 #define CARDMIC_SAMPLE_RATE_HZ 16000
+// Longest name a Cardputer can be given (Settings > Name), in ASCII characters.
+#define CARDMIC_NAME_MAX 16
 #define CARDMIC_SAMPLES_PER_MS (CARDMIC_SAMPLE_RATE_HZ / 1000)
 
 // Install TinyUSB as a UAC microphone, plus a HID keyboard when
@@ -24,6 +26,10 @@ extern "C" {
 // ESP_ERR_INVALID_STATE if another USB function (the stock USB keyboard app)
 // already owns TinyUSB.
 esp_err_t cardmic_usb_start(bool with_keyboard);
+
+// The name computers list the microphone under, from the next
+// cardmic_usb_start on. NULL or "" keeps the product name, Cardmic Microphone.
+void cardmic_usb_set_name(const char *name);
 
 // What the Cardmic app reads over USB to pair: the pairing code (NULL or ""
 // while pairing is off), the device's name and firmware version.

@@ -144,10 +144,11 @@ enum class Page {
     Password,
     Connecting,
     ConnectFailed,
+    Name,
 };
 volatile Page s_page = Page::Main;
 
-enum SettingItem { SET_WIFI, SET_NETWORK, SET_PAIRING, SET_TALK, SET_MUTE, SET_GAIN, SET_ABOUT, SET_COUNT };
+enum SettingItem { SET_WIFI, SET_NETWORK, SET_PAIRING, SET_TALK, SET_MUTE, SET_GAIN, SET_NAME, SET_ABOUT, SET_COUNT };
 
 // Push-to-talk ("voice keyboard"): holding SPACE on the main screen holds a
 // key chord on the computer over USB, which dictation apps use as their
@@ -173,6 +174,11 @@ bool s_audio_ok    = false;
 char s_pair_code[CARDMIC_PAIR_CODE_LEN + 1] = "";
 bool s_pair_required         = false;
 volatile bool s_pair_busy    = false;
+
+// Settings > Name: what computers call this Cardputer. Empty means the default,
+// Cardmic-XXXX from the last two bytes of the MAC address.
+std::string s_name;
+std::string s_usb_name_active;  // what USB enumerated with, this session
 int s_set_sel = 0;
 
 std::vector<std::pair<int, std::string>> s_scan;
@@ -536,15 +542,44 @@ void pair_apply_task(void*)
     vTaskDelete(nullptr);
 }
 
+std::string default_name()
+{
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char name[16];
+    snprintf(name, sizeof(name), "Cardmic-%02X%02X", mac[4], mac[5]);
+    return name;
+}
+
+std::string device_name() { return s_name.empty() ? default_name() : s_name; }
+
+// A name travels in the USB identity report, as "name=...;", and over Wi-Fi,
+// so it keeps to printable ASCII without the report's separators.
+std::string clean_name(const std::string& in)
+{
+    std::string out;
+    for (char ch : in) {
+        if (ch >= 0x20 && ch <= 0x7E && ch != ';' && ch != '=' && out.size() < CARDMIC_NAME_MAX) out += ch;
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    while (!out.empty() && out.front() == ' ') out.erase(0, 1);
+    return out;
+}
+
 // What a computer reads over USB to pair itself (see cardmic_usb.h): the
 // code while pairing is on, and this Cardputer's name.
 void update_usb_identity()
 {
-    uint8_t mac[6] = {0};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    char name[20];
-    snprintf(name, sizeof(name), "Cardmic-%02X%02X", mac[4], mac[5]);
-    cardmic_usb_set_identity(s_pair_required ? s_pair_code : "", name, esp_app_get_description()->version);
+    cardmic_usb_set_identity(s_pair_required ? s_pair_code : "", device_name().c_str(),
+                             esp_app_get_description()->version);
+}
+
+// A new name reaches the Cardmic app at once, over USB and Wi-Fi. The
+// microphone's own USB name follows the next time Cardmic opens.
+void apply_name()
+{
+    cardmic_net_set_name(device_name().c_str());
+    update_usb_identity();
 }
 
 // Hand the current pairing state to the network side and to USB. Deriving
@@ -562,14 +597,23 @@ void pair_apply()
 
 void pair_load()
 {
-    std::string code = GetHAL().getSettings().GetString("cardmic_code", "");
-    if (cardmic_pair_valid(code.c_str())) {
+    std::string code  = GetHAL().getSettings().GetString("cardmic_code", "");
+    const bool had_code = cardmic_pair_valid(code.c_str());
+    if (had_code) {
         strlcpy(s_pair_code, code.c_str(), sizeof(s_pair_code));
     } else {
         cardmic_pair_generate(s_pair_code);
         GetHAL().getSettings().SetString("cardmic_code", s_pair_code);
     }
-    s_pair_required = GetHAL().getSettings().GetString("cardmic_pair", "0") == "1";
+    // Pairing is on out of the box. A Cardputer that already ran Cardmic 0.6
+    // (it has a code) with pairing never switched on keeps it off, so an
+    // update does not cut off the computers it streams to.
+    std::string pair = GetHAL().getSettings().GetString("cardmic_pair", "");
+    if (pair.empty()) {
+        pair = had_code ? "0" : "1";
+        GetHAL().getSettings().SetString("cardmic_pair", pair);
+    }
+    s_pair_required = pair == "1";
 #ifdef CARDMIC_DEV_TOOLS
     cardmic_net_dev_set_code(s_pair_code);
 #endif
@@ -599,6 +643,10 @@ void open_setting(int item)
         case SET_GAIN:
             s_gain_idx = (s_gain_idx + 1) % 3;
             GetHAL().getSettings().SetString("cardmic_gain", std::to_string((int)s_gain_idx));
+            break;
+        case SET_NAME:
+            s_entry = s_name;
+            s_page  = Page::Name;
             break;
         case SET_ABOUT:
             s_page = Page::About;
@@ -715,6 +763,21 @@ void handle_key(const Keyboard::KeyEvent_t& e)
                 s_page = Page::Password;
             } else {
                 type_into(s_entry, e, 32);
+            }
+            break;
+
+        case Page::Name:
+            if (e.keyCode == KEY_ENTER) {
+                s_name = clean_name(s_entry);
+                GetHAL().getSettings().SetString("cardmic_name", s_name);
+                apply_name();
+                s_page = Page::Settings;
+            } else if (type_into(s_entry, e, CARDMIC_NAME_MAX)) {
+                // Only what a name can hold (see clean_name); spaces at the
+                // ends go when it is saved.
+                s_entry.erase(std::remove_if(s_entry.begin(), s_entry.end(),
+                                             [](char ch) { return ch < 0x20 || ch > 0x7E || ch == ';' || ch == '='; }),
+                              s_entry.end());
             }
             break;
 
@@ -1166,6 +1229,7 @@ void draw_settings()
                                                                             : C_DIM},
         {"Mute", s_device_muted ? "ON" : "OFF", s_device_muted ? C_MUTE : C_DIM},
         {"Mic gain", GAIN_NAME[s_gain_idx], C_TEXT},
+        {"Name", device_name(), s_name != s_usb_name_active ? C_WARN : s_name.empty() ? C_DIM : C_TEXT},
         {"About", std::string("v") + version(), C_DIM},
     };
     constexpr int VISIBLE = 5;
@@ -1178,6 +1242,8 @@ void draw_settings()
     // about Wi-Fi or any other row.
     if (s_talk_key != s_talk_active && s_set_sel == SET_TALK) {
         text(&fonts::Font0, C_WARN, 2, 98, "TALK KEY: REOPEN CARDMIC TO APPLY");  // 33 chars fits 204 px
+    } else if (s_name != s_usb_name_active && s_set_sel == SET_NAME) {
+        text(&fonts::Font0, C_WARN, 2, 98, "USB NAME: REOPEN CARDMIC TO APPLY");
     } else {
         hint_row({{";.", "MOVE"}, {"ENT", "OPEN"}, {"G0", "BACK"}});
     }
@@ -1364,6 +1430,15 @@ std::string upper(std::string s)
     return s;
 }
 
+void draw_name()
+{
+    page_title("NAME");
+    text(&fonts::Font0, C_DIM, 2, 18, "WHAT YOUR COMPUTER CALLS IT");
+    text_field(30, s_entry, false);
+    text(&fonts::Font0, C_DIM, 2, 60, upper("Empty = " + default_name()).c_str());
+    hint_row({{"ENT", "SAVE"}, {"G0", "BACK"}});
+}
+
 #ifdef CARDMIC_DEV_TOOLS
 // Development builds accept key events over Wi-Fi (see cardmic_net.c), so the
 // UI can be exercised without touching the device.
@@ -1505,6 +1580,12 @@ void AppCardmic::onOpen()
     s_talk_key    = std::clamp(atoi(GetHAL().getSettings().GetString("cardmic_talkkey", "0").c_str()), 0, TALK_COUNT - 1);
     s_talk_down   = false;
 
+    // The name, before USB enumerates: computers list the microphone by it.
+    s_name            = clean_name(GetHAL().getSettings().GetString("cardmic_name", ""));
+    s_usb_name_active = s_name;
+    cardmic_usb_set_name(s_name.c_str());
+    cardmic_net_set_name(device_name().c_str());
+
     // USB: fails if the stock USB keyboard already owns TinyUSB this boot.
     s_talk_active = s_talk_key;
     s_usb_ok      = cardmic_usb_start(s_talk_active != TALK_OFF) == ESP_OK;
@@ -1623,6 +1704,9 @@ void AppCardmic::draw()
             break;
         case Page::Connecting:
             draw_busy("WI-FI", "JOINING " + upper(s_pick_ssid.substr(0, 16)));
+            break;
+        case Page::Name:
+            draw_name();
             break;
     }
     GetHAL().pushCanvas();

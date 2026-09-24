@@ -85,6 +85,11 @@ static uint8_t s_clock_valid = 1;
 static audio_control_range_2_n_t(1) s_volume_range;
 static audio_control_range_4_n_t(1) s_sample_freq_range;
 static char s_usb_serial[13] = "000000000000";
+// What computers list the microphone as: the name given in Settings > Name,
+// or the product name when there is none.
+#define USB_DEFAULT_NAME "Cardmic Microphone"
+static char s_usb_name[sizeof(USB_DEFAULT_NAME) > CARDMIC_NAME_MAX ? sizeof(USB_DEFAULT_NAME) : CARDMIC_NAME_MAX + 1] =
+    USB_DEFAULT_NAME;
 static bool s_keyboard;  // this session enumerates the talk-key keyboard too
 // Set while the USB PHY is handed back to the serial/JTAG controller. It must
 // be deleted before TinyUSB can take the PHY again, or a restart (switching
@@ -152,9 +157,9 @@ static const uint8_t s_configuration_descriptor_kb[] = {
 static const char *s_string_descriptor[] = {
     (const char[]){0x09, 0x04},
     "Cardmic",
-    "Cardmic Microphone",
+    s_usb_name,
     s_usb_serial,
-    "Cardmic Microphone",
+    s_usb_name,
     "Cardmic Talk Key",
     "Cardmic Dev Console",
     "Cardmic",
@@ -359,6 +364,11 @@ bool cardmic_usb_talk_key(uint8_t modifiers, uint8_t keycode, bool down)
     return tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, down ? modifiers : 0, keycode ? keys : NULL);
 }
 bool cardmic_usb_streaming(void) { return s_installed && s_streaming; }
+
+void cardmic_usb_set_name(const char *name)
+{
+    strlcpy(s_usb_name, name && *name ? name : USB_DEFAULT_NAME, sizeof(s_usb_name));
+}
 
 void cardmic_usb_set_identity(const char *code, const char *name, const char *fw)
 {

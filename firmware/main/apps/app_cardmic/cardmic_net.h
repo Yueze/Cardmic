@@ -38,6 +38,9 @@ void cardmic_net_stop(void);
 // receiver is connected.
 void cardmic_net_push(const int16_t *samples, size_t count);
 
+// The name to tell the computer this streams to (Settings > Name).
+void cardmic_net_set_name(const char *name);
+
 bool cardmic_net_receiver_active(void);
 // Receiver IPv4 as dotted string, or "" when none.
 void cardmic_net_receiver_ip(char *out, size_t out_size);
