@@ -34,11 +34,42 @@ jobs:
   release-macos:
     needs: test
     runs-on: macos-14
+    # Signing and notarization, once these secrets exist (Apple Developer
+    # Program): MACOS_CERT_P12 (base64 of a "Developer ID Application" .p12),
+    # MACOS_CERT_PASSWORD, and an App Store Connect API key for notarytool:
+    # NOTARY_KEY_P8 (the .p8 file's text), NOTARY_KEY_ID, NOTARY_ISSUER.
+    # Without them the app is signed ad hoc, as before.
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+      NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Developer ID certificate (when configured)
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          PASS=$(uuidgen)
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASS" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$PASS" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then echo "no Developer ID Application identity in MACOS_CERT_P12"; exit 1; fi
+          echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          if [ -n "$NOTARY_KEY_P8" ]; then
+            printf '%s' "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+            echo "NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+          fi
       - name: Menu bar app (Cardmic.app in a disk image)
         run: tray/macos/bundle.sh --universal
       - name: Command-line client
