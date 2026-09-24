@@ -210,6 +210,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("\nConnected to Cardputer at {addr} ({how})");
             }
             Event::Lost { addr } => println!("\nCardputer at {addr} stopped sending; searching again..."),
+            Event::Named { addr, name } => println!("The Cardputer at {addr} is {name}"),
             Event::UnencryptedWhilePaired => println!(
                 "\nNote: this Cardputer is not requiring pairing, so audio is unencrypted. Turn on Settings > Pairing."
             ),

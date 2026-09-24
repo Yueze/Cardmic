@@ -459,6 +459,7 @@ impl App {
                                     log(&format!("connected to {addr} (encrypted: {encrypted})"))
                                 }
                                 cardmic_engine::Event::Lost { addr } => log(&format!("lost {addr}")),
+                                cardmic_engine::Event::Named { addr, name } => log(&format!("{addr} is {name}")),
                                 cardmic_engine::Event::StillSearching { auth_failures, .. } => {
                                     log(&format!("still searching (auth failures: {auth_failures})"))
                                 }
@@ -866,7 +867,14 @@ impl App {
             .opt("usb", self.devices.usb_mic.as_deref())
             .bool("paired", self.paired)
             .bool("paired_over_usb", self.paired_over_usb.is_some_and(|t| t.elapsed() < Duration::from_secs(8)))
-            .opt("device_name", self.devices.usb_identity.as_ref().map(|i| i.name.as_str()).or(self.device_name.as_deref()))
+            // What the Cardputer calls itself: over Wi-Fi while receiving, else over USB.
+            .opt(
+                "device_name",
+                connected
+                    .and(s.and_then(|s| s.device_name.as_deref()))
+                    .or(self.devices.usb_identity.as_ref().map(|i| i.name.as_str()))
+                    .or(self.device_name.as_deref()),
+            )
             .str("install_name", output::install_hint().0)
             .str("update", &match self.updater.state() {
                 update::State::Idle => String::new(),

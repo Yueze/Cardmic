@@ -30,6 +30,8 @@ use std::time::{Duration, Instant};
 
 /// What a Cardputer with pairing on answers a discovery it cannot accept.
 pub const PAIRING_REQUIRED: &[u8] = b"CARDMIC_PAIRING_REQUIRED";
+/// The Cardputer saying what it is called (Settings > Name), followed by the name.
+pub const NAME_PREFIX: &[u8] = b"CARDMIC_NAME ";
 
 /// How long to wait with no Cardputer before [`Event::StillSearching`].
 const SEARCH_HINT_AFTER: Duration = Duration::from_secs(6);
@@ -66,6 +68,8 @@ pub struct Status {
     pub target_ms: f64,
     /// Peak level of the last ~100 ms of audio, 0..1.
     pub level: f32,
+    /// What the Cardputer streaming here is called, once it has said.
+    pub device_name: Option<String>,
 }
 
 /// Things worth telling the user about, as they happen.
@@ -73,6 +77,8 @@ pub struct Status {
 pub enum Event {
     Connected { addr: SocketAddr, encrypted: bool },
     Lost { addr: SocketAddr },
+    /// The Cardputer told its name, or a new one.
+    Named { addr: SocketAddr, name: String },
     /// This computer is paired but the Cardputer is not requiring pairing.
     UnencryptedWhilePaired,
     /// Nothing found for a few seconds.
@@ -139,6 +145,7 @@ impl Engine {
             buffered_ms: 0.0,
             target_ms: 0.0,
             level: 0.0,
+            device_name: None,
         }));
         let spectrum = Arc::new(Mutex::new(spectrum::Spectrum::new()));
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -286,6 +293,7 @@ impl Receiver {
         let mut searching_since = Instant::now();
         let mut hinted = false;
         let mut warned_plain = false;
+        let mut named_by: Option<SocketAddr> = None;
         let mut nonce_counter = 0u64;
         let mut peak = 0.0f32;
         let mut buf = [0u8; 2048];
@@ -340,6 +348,19 @@ impl Receiver {
                         }
                         continue;
                     }
+                    if let Some(name) = device_name_message(data) {
+                        // From the Cardputer streaming here, or about to: it
+                        // names itself as it accepts this computer.
+                        if device.is_none() || device == Some(from) {
+                            named_by = Some(from);
+                            let changed = self.lock().device_name.as_deref() != Some(name.as_str());
+                            if changed {
+                                self.lock().device_name = Some(name.clone());
+                                on_event(Event::Named { addr: from, name });
+                            }
+                        }
+                        continue;
+                    }
                     let packet = match Packet::decode(data) {
                         Ok(p) => {
                             if self.keys.is_some() && !warned_plain {
@@ -362,6 +383,9 @@ impl Receiver {
                     let encrypted = packet.version == Version::Cpm2;
                     if device != Some(from) {
                         self.lock().pairing_refused = false;
+                        if named_by != Some(from) {
+                            self.lock().device_name = None; // another Cardputer's name
+                        }
                         device = Some(from);
                         sequencer.reset();
                         self.stream.resync();
@@ -463,6 +487,15 @@ fn discovery_nonce(counter: &mut u64) -> [u8; 8] {
     (t ^ counter.rotate_left(32)).to_le_bytes()
 }
 
+/// The name in a `CARDMIC_NAME <name>` message, as printable text of at most
+/// 32 characters; `None` for anything else.
+fn device_name_message(data: &[u8]) -> Option<String> {
+    let rest = data.strip_prefix(NAME_PREFIX)?;
+    let name: String = String::from_utf8_lossy(rest).chars().filter(|c| !c.is_control()).take(32).collect();
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 /// The same Cardputer switched to or from encryption mid-stream: pairing was
 /// turned on or off on it while this computer was receiving. The first
 /// packet after turning pairing on can still be plain, while the device
@@ -474,6 +507,17 @@ fn encryption_changed(link: &Link, encrypted: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cardputer_says_its_name() {
+        assert_eq!(device_name_message(b"CARDMIC_NAME Kellan's mic").as_deref(), Some("Kellan's mic"));
+        assert_eq!(device_name_message(b"CARDMIC_NAME  Cardmic-05AC \n").as_deref(), Some("Cardmic-05AC"));
+        assert_eq!(device_name_message(b"CARDMIC_NAME "), None, "an empty name is no name");
+        assert_eq!(device_name_message(b"CARDMIC_PAIRING_REQUIRED"), None);
+        assert_eq!(device_name_message(b"CPM1....").as_deref(), None);
+        let long = [b"CARDMIC_NAME ".as_slice(), &[b'x'; 100]].concat();
+        assert_eq!(device_name_message(&long).map(|n| n.len()), Some(32), "capped");
+    }
 
     #[test]
     fn a_link_follows_the_device_into_encryption() {

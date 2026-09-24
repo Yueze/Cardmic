@@ -32,15 +32,23 @@ const ID_REPORT: u8 = 3;
 
 pub fn scan(hid: Option<&mut HidApi>) -> Devices {
     let host = cpal::default_host();
-    let usb_mic = host
-        .input_devices()
-        .ok()
-        .and_then(|it| it.map(|d| cardmic_audio::device_name(&d)).find(|n| n.contains("Cardmic")));
-    let usb_identity = match (&usb_mic, hid) {
-        (Some(_), Some(api)) => read_identity(api),
-        _ => None,
-    };
+    let usb_identity = hid.and_then(read_identity);
+    let usb_mic = host.input_devices().ok().and_then(|it| {
+        it.map(|d| cardmic_audio::device_name(&d))
+            .find(|n| is_cardmic_mic(n, usb_identity.as_ref().map(|id| id.name.as_str())))
+    });
     Devices { usb_mic, usb_identity, loopbacks: cardmic_audio::loopback_candidates(&host) }
+}
+
+/// Whether an input device is the Cardputer's microphone. It is listed as
+/// "Cardmic Microphone" unless the Cardputer was given a name (Settings >
+/// Name), which it then also goes by over USB: as is on macOS, as
+/// "Microphone (name)" on Windows.
+fn is_cardmic_mic(device: &str, name: Option<&str>) -> bool {
+    device.contains("Cardmic")
+        || name.is_some_and(|name| {
+            !name.is_empty() && (device == name || device.ends_with(&format!(" {name})")) || device.ends_with(&format!("({name})")))
+        })
 }
 
 fn read_identity(api: &mut HidApi) -> Option<UsbIdentity> {
@@ -106,6 +114,18 @@ mod tests {
         assert_eq!(id.code.as_deref(), Some("7K2M9QXB4TPA"));
         assert_eq!(id.name, "Cardmic-05AC");
         assert_eq!(id.firmware, "0.6.0");
+    }
+
+    #[test]
+    fn a_renamed_cardputer_is_still_found() {
+        assert!(is_cardmic_mic("Cardmic Microphone", None));
+        assert!(is_cardmic_mic("Microphone (Cardmic Microphone)", None));
+        assert!(is_cardmic_mic("Kellan's mic", Some("Kellan's mic")), "macOS lists it by its name");
+        assert!(is_cardmic_mic("Microphone (Kellan's mic)", Some("Kellan's mic")), "Windows");
+        assert!(is_cardmic_mic("Microphone (2- Kellan's mic)", Some("Kellan's mic")), "Windows, a second one");
+        assert!(!is_cardmic_mic("MacBook Pro Microphone", Some("Mic")), "a short name is not a substring match");
+        assert!(!is_cardmic_mic("MacBook Pro Microphone", None));
+        assert!(!is_cardmic_mic("Studio Display Microphone", Some("")));
     }
 
     #[test]
