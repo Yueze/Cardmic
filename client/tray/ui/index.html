@@ -42,7 +42,6 @@
   header { height: 36px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; }
   .mac header { padding-left: 82px; }
   header .grow { flex: 1; }
-  #version { font: 10px var(--mono); color: var(--dim); }
   .light { display: inline-flex; align-items: center; gap: 6px; }
   .light i { width: 7px; height: 7px; border-radius: 50%; background: #333; display: block; position: relative; }
   .light.on { color: var(--accent); } .light.on i { background: var(--accent); }
@@ -135,7 +134,6 @@
 <body>
 <header id="bar">
   <canvas id="brand"></canvas>
-  <span id="version"></span>
   <span class="grow"></span>
   <span class="light legend" id="usbLight"><i></i>USB</span>
   <span class="light legend" id="wifiLight"><i></i>Wi-Fi</span>
@@ -427,7 +425,6 @@
     state = s;
     document.documentElement.classList.toggle("mac", s.platform !== "win");
     dots($("brand"), "CARDMIC", 2, COL.accent, null);
-    put($("version"), "text", s.version ? "v" + s.version : "");
 
     const live = s.phase === "connected";
     const usbLive = s.phase === "usb";
@@ -501,15 +498,16 @@
 
     put($("loginLabel"), "text", s.platform === "win" ? "Start with Windows" : "Open at login");
 
-    // Updates: the app checks by itself; this says where it stands.
+    // The version, and where updates stand: the app checks by itself.
     const u = (s.update || "").split(" ");
     updateReady = u[0] === "ready";
+    const version = s.version ? "Version " + s.version : "";
     put($("updText"), "text",
-      u[0] === "checking" ? "Checking for updates…"
-      : u[0] === "current" ? `Up to date (v${s.version})`
-      : u[0] === "downloading" ? `Downloading ${u[1]}, ${u[2]}%`
+      u[0] === "checking" ? `${version} · checking for updates…`
+      : u[0] === "current" ? `${version} · up to date`
+      : u[0] === "downloading" ? `Downloading ${u[1]} · ${u[2]}%`
       : u[0] === "ready" ? `Version ${u[1]} is ready`
-      : u[0] === "failed" ? "Could not check for updates" : "");
+      : u[0] === "failed" ? `${version} · couldn't check for updates` : version);
     put($("updates"), "text", updateReady ? "Restart to update" : "Check for updates");
     put($("updates"), "class", updateReady ? "primary" : "link");
   }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **App: the version lives in the footer only**, always shown there, with
+  where updates stand; the title bar is just the name.
 - **App: the lock follows the link.** Turning pairing on while a computer is
   receiving encrypts the stream a moment later; the app now shows the lock
   then, instead of keeping the first, still-plain packet's "unencrypted"
