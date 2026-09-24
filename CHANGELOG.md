@@ -8,12 +8,14 @@
   turned on keeps it off, so an update does not cut off the computers it
   streams to.
 - **Settings > Name.** Give the Cardputer a name (up to 16 characters). The
-  Cardmic app shows it, over USB and over Wi-Fi, and computers list the USB
-  microphone under it from the next time Cardmic opens, so two Cardputers
-  are easy to tell apart. Unnamed, it stays Cardmic-XXXX in the app and
+  Cardmic app shows it over Wi-Fi at once; over USB, computers list the
+  microphone under it, and the app shows it, from the next time Cardmic
+  opens. Two Cardputers are easy to tell apart. Unnamed, it stays Cardmic-XXXX in the app and
   Cardmic Microphone over USB.
 - **App: a renamed Cardputer is still found** over USB, by the name it
   reports, on macOS and Windows.
+- **Hold to talk guide:** a new talk key applies when Cardmic opens again,
+  as the device says; the guide said at once.
 - **Protocol:** the device tells its receiver its name, `CARDMIC_NAME <name>`
   (see PROTOCOL.md). Older apps ignore it.
 

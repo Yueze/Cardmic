@@ -567,20 +567,19 @@ std::string clean_name(const std::string& in)
 }
 
 // What a computer reads over USB to pair itself (see cardmic_usb.h): the
-// code while pairing is on, and this Cardputer's name.
+// code while pairing is on, and the name USB enumerated with this session.
+// That is the name the computer lists the microphone under, so the Cardmic
+// app can tell which microphone is this Cardputer; a new name reaches USB,
+// both at once, the next time Cardmic opens.
 void update_usb_identity()
 {
-    cardmic_usb_set_identity(s_pair_required ? s_pair_code : "", device_name().c_str(),
-                             esp_app_get_description()->version);
+    const std::string name = s_usb_name_active.empty() ? default_name() : s_usb_name_active;
+    cardmic_usb_set_identity(s_pair_required ? s_pair_code : "", name.c_str(), esp_app_get_description()->version);
 }
 
-// A new name reaches the Cardmic app at once, over USB and Wi-Fi. The
-// microphone's own USB name follows the next time Cardmic opens.
-void apply_name()
-{
-    cardmic_net_set_name(device_name().c_str());
-    update_usb_identity();
-}
+// A new name reaches the Cardmic app over Wi-Fi at once; over USB, with the
+// microphone's own name, the next time Cardmic opens.
+void apply_name() { cardmic_net_set_name(device_name().c_str()); }
 
 // Hand the current pairing state to the network side and to USB. Deriving
 // the keys takes a moment, so it runs in its own task.

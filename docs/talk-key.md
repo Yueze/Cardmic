@@ -11,9 +11,12 @@ small keyboard.
 ## Set it up
 
 1. In Cardmic, press `S`, go to **Talk key** and press `Enter` to pick a
-   chord. The USB connection restarts once, now as microphone + keyboard.
+   chord. Then leave Cardmic (`G0`) and open it again: the key applies when
+   Cardmic opens, and USB comes back as microphone + keyboard. (Until then
+   Settings says **TALK KEY: REOPEN CARDMIC TO APPLY**.)
 2. In your dictation app, set the hold-to-talk shortcut to the same chord,
-   and pick **Cardmic Microphone** as its microphone.
+   and pick **Cardmic Microphone** (or the name you gave the Cardputer) as
+   its microphone.
 3. On Cardmic's main screen, hold `Space` to talk. The key cap in the corner
    lights up and the screen says **TALK**.
 

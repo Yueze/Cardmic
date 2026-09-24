@@ -47,7 +47,8 @@ CARDMIC_NAME <name>
 with the name it goes by: the one set in Settings > Name, or `Cardmic-` plus
 the last two bytes of its Wi-Fi MAC address. Names are at most 16 printable
 ASCII characters without `;` or `=`. The datagram goes only to the accepted
-receiver, so with pairing on only a paired computer learns the name. Clients
+receiver, but it is not encrypted, and a captured v2 discovery can be sent
+again by someone else, so treat the name as visible on the network. Clients
 that do not know it ignore it, as any datagram that is not an audio packet.
 
 ## 2. Audio packets
@@ -188,7 +189,10 @@ CM1;pair=1;code=7K2M9QXB4TPA;name=Cardmic-05AC;fw=0.6.0
 CM1;pair=0;name=Cardmic-05AC;fw=0.6.0          (pairing off: no code)
 ```
 
-`name` is the device's name, as in section 1. The Cardmic app reads this report when a Cardputer is plugged in and stores the
+`name` is the name the microphone enumerated with: the device's name as in
+section 1, except that a new name reaches USB, here and as the microphone's
+product name (below), only the next time Cardmic opens. So `name` always
+matches the name the computer lists the microphone under. The Cardmic app reads this report when a Cardputer is plugged in and stores the
 code, so the computer is paired for Wi-Fi from then on: plugging in is the
 act of trust. With the talk key on, the same interface also carries the
 keyboard (report 1) and mouse (report 2), so no endpoint is added.
