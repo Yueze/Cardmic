@@ -35,10 +35,15 @@ struct Config {
     keys: Option<Keys>,
     tone_hz: f32,
     loss_pct: u32,
+    name: String,
 }
 
+/// Like the firmware: the device's name, to its receiver on a new session and
+/// then every 2 s (PROTOCOL.md, "The device's name").
+const NAME_EVERY: Duration = Duration::from_secs(2);
+
 fn parse_args() -> Result<Config, String> {
-    let mut cfg = Config { port: 41235, keys: None, tone_hz: 440.0, loss_pct: 0 };
+    let mut cfg = Config { port: 41235, keys: None, tone_hz: 440.0, loss_pct: 0, name: "Cardmic-Synth".into() };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
@@ -49,6 +54,7 @@ fn parse_args() -> Result<Config, String> {
                 cfg.keys = Some(Keys::derive(&code));
             }
             "--tone" => cfg.tone_hz = value("--tone")?.parse().map_err(|e| format!("--tone: {e}"))?,
+            "--name" => cfg.name = value("--name")?,
             "--loss" => {
                 cfg.loss_pct = value("--loss")?.parse().map_err(|e| format!("--loss: {e}"))?;
                 if cfg.loss_pct > 100 {
@@ -56,7 +62,7 @@ fn parse_args() -> Result<Config, String> {
                 }
             }
             "-h" | "--help" => {
-                println!("cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT]");
+                println!("cardmic-synth [--port N] [--pair CODE] [--tone HZ] [--loss PCT] [--name NAME]");
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument: {other}")),
@@ -107,6 +113,7 @@ fn main() {
 
     let mut receiver: Option<SocketAddr> = None;
     let mut last_discovery = Instant::now();
+    let mut name_told: Option<Instant> = None;
     let mut next_packet = Instant::now();
     let mut sequence: u32 = 0;
     let mut session: u32 = 0;
@@ -129,9 +136,14 @@ fn main() {
                     println!("receiver: {from}");
                     sequence = 0;
                     session = session.wrapping_mul(1_664_525).wrapping_add(1_013_904_223) ^ from.port() as u32;
+                    name_told = None;
                 }
                 receiver = Some(from);
                 last_discovery = Instant::now();
+                if name_told.is_none_or(|t| t.elapsed() >= NAME_EVERY) {
+                    let _ = socket.send_to(format!("CARDMIC_NAME {}", cfg.name).as_bytes(), from);
+                    name_told = Some(Instant::now());
+                }
             }
             Ok(_) | Err(_) => {}
         }
