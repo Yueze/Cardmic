@@ -26,6 +26,13 @@
   sender that has not answered (a recording, or an app from before 0.7.0)
   gets the stream only while no answering computer wants it, and is never
   told the device's name. Older apps and older firmware keep working.
+- **Fewer "stopped sending" drops over Wi-Fi.** The app kept the stream alive
+  with broadcast packets only; Wi-Fi sends broadcasts once, unacknowledged,
+  and often late to a device saving power, so a few lost in a row made the
+  Cardputer stop streaming. Once connected, the app now sends them straight
+  to the Cardputer, which Wi-Fi acknowledges and retries.
+- **Always the freshest audio.** When the link falls behind, the Cardputer
+  drops its oldest queued audio instead of the newest.
 - **Playback follows the Cardputer's clock.** A Cardputer whose microphone
   clock runs a little slow or fast (the original Cardputer's report looked
   like this) used to drain or overfill the buffer, with a gap every so often

@@ -321,7 +321,7 @@ impl Receiver {
                     Some(d) => d,
                     None => DISCOVERY_MESSAGE,
                 };
-                for target in &self.targets {
+                for target in keepalive_targets(device, &self.targets, &self.devices) {
                     let _ = self.socket.send_to(message, target);
                 }
                 last_discovery = Some(Instant::now());
@@ -513,6 +513,23 @@ fn discovery_nonce(counter: &mut u64) -> [u8; 8] {
     (t ^ counter.rotate_left(32)).to_le_bytes()
 }
 
+/// Where discovery goes. While a Cardputer is streaming here, straight to it
+/// (and to any address given by hand): Wi-Fi delivers unicast with
+/// acknowledgements and retries, and holds it for a device that is saving
+/// power, while a broadcast goes once, unacknowledged, and is often late or
+/// lost, which dropped the stream whenever a few keepalives in a row went
+/// missing. Searching, to every broadcast address.
+fn keepalive_targets(device: Option<SocketAddr>, broadcast: &[SocketAddr], explicit: &[SocketAddr]) -> Vec<SocketAddr> {
+    match device {
+        Some(device) => {
+            let mut targets = vec![device];
+            targets.extend(explicit.iter().filter(|&&a| a != device));
+            targets
+        }
+        None => broadcast.to_vec(),
+    }
+}
+
 /// Challenges this computer answers in a second, at most.
 const ANSWERS_PER_SECOND: u32 = 8;
 
@@ -558,6 +575,20 @@ fn encryption_changed(link: &Link, encrypted: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_streaming_cardputer_is_kept_alive_directly() {
+        let device: SocketAddr = "192.168.1.42:41234".parse().unwrap();
+        let broadcast: Vec<SocketAddr> = vec!["192.168.1.255:41234".parse().unwrap(), "255.255.255.255:41234".parse().unwrap()];
+        let by_hand: Vec<SocketAddr> = vec!["10.0.0.9:41234".parse().unwrap(), device];
+        assert_eq!(keepalive_targets(None, &broadcast, &[]), broadcast, "searching: broadcast");
+        assert_eq!(keepalive_targets(Some(device), &broadcast, &[]), vec![device], "streaming: straight to it");
+        assert_eq!(
+            keepalive_targets(Some(device), &broadcast, &by_hand),
+            vec![device, "10.0.0.9:41234".parse().unwrap()],
+            "and to addresses given by hand, once each"
+        );
+    }
 
     #[test]
     fn challenges_are_answered_a_few_a_second() {

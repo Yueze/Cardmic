@@ -554,7 +554,14 @@ void cardmic_net_push(const int16_t *samples, size_t count)
         samples += take;
         count -= take;
         if (s_pending_count == FRAME_SAMPLES) {
-            (void)xQueueSend(s_queue, s_pending, 0);  // drop if the link is congested
+            // Live audio: when the link falls behind, the oldest frame goes,
+            // not the newest, so what reaches the computer is as fresh as it
+            // can be.
+            if (xQueueSend(s_queue, s_pending, 0) != pdTRUE) {
+                static frame_t stale;
+                (void)xQueueReceive(s_queue, &stale, 0);
+                (void)xQueueSend(s_queue, s_pending, 0);
+            }
             s_pending_count = 0;
         }
     }

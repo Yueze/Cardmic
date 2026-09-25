@@ -30,7 +30,15 @@ Two rules matter as much as the byte layout:
 1. **The device streams to the discovery packet's source address _and source
    port_.** Send discovery from the same socket that receives audio.
 2. **Discovery is a keepalive.** The device drops the receiver 2.5 s after the
-   last discovery packet. Clients resend every 700 ms.
+   last discovery packet. Clients resend every 700 ms, and once the device is
+   streaming to them they send it to the device's address, not a broadcast:
+   Wi-Fi acknowledges and retries unicast, and holds it for a device that is
+   saving power, while broadcasts are sent once, unacknowledged, and often
+   arrive late or not at all. A few lost in a row used to drop the stream.
+
+The device sends live audio: with no receiver, captured audio is dropped
+at once, and when the link falls behind, its short send queue (160 ms)
+drops the oldest frame rather than the newest.
 
 The device serves one receiver at a time. While a session is live, discovery
 from any other address is ignored (first-receiver lock), except that with
