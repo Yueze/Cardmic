@@ -27,8 +27,10 @@ pub fn i16_to_f32(samples: &[i16]) -> Vec<f32> {
 /// per-chunk approach is an audible click every 20 ms.
 #[derive(Debug, Clone)]
 pub struct Resampler {
-    /// Input samples consumed per output sample (`from_rate / to_rate`).
+    /// Input samples consumed per output sample: `nominal` times the speed.
     step: f64,
+    /// `from_rate / to_rate`.
+    nominal: f64,
     /// Position of the next output sample, measured in input samples from
     /// `prev`. Always in `[0, 1)` between calls.
     phase: f64,
@@ -43,7 +45,15 @@ impl Resampler {
     /// If either rate is zero.
     pub fn new(from_rate: u32, to_rate: u32) -> Self {
         assert!(from_rate > 0 && to_rate > 0, "sample rates must be non-zero");
-        Resampler { step: from_rate as f64 / to_rate as f64, phase: 0.0, prev: 0.0, primed: false }
+        let nominal = from_rate as f64 / to_rate as f64;
+        Resampler { step: nominal, nominal, phase: 0.0, prev: 0.0, primed: false }
+    }
+
+    /// Play `speed` times as fast as the nominal rates say: below 1 the same
+    /// input makes more output, above 1 less. For following a source whose
+    /// clock runs slightly slow or fast; 1.0 is exact.
+    pub fn set_speed(&mut self, speed: f64) {
+        self.step = self.nominal * speed;
     }
 
     /// Resample a chunk, appending the output to `out`.
@@ -113,6 +123,21 @@ pub fn mono_to_interleaved(mono: &[f32], channels: usize, out: &mut Vec<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speed_changes_how_much_output_the_same_input_makes() {
+        let input = vec![0.25f32; 16_000];
+        let count = |speed: f64| {
+            let mut r = Resampler::new(16_000, 48_000);
+            r.set_speed(speed);
+            let mut out = Vec::new();
+            r.process(&input, &mut out);
+            out.len() as f64
+        };
+        let exact = count(1.0);
+        assert!((count(0.99) / exact - 1.0 / 0.99).abs() < 1e-3, "1 % slower: 1 % more output");
+        assert!((count(1.01) / exact - 1.0 / 1.01).abs() < 1e-3);
+    }
 
     fn sine(rate: u32, hz: f32, n: usize) -> Vec<f32> {
         (0..n).map(|i| (i as f32 * hz * std::f32::consts::TAU / rate as f32).sin()).collect()

@@ -26,6 +26,13 @@
   sender that has not answered (a recording, or an app from before 0.7.0)
   gets the stream only while no answering computer wants it, and is never
   told the device's name. Older apps and older firmware keep working.
+- **Playback follows the Cardputer's clock.** A Cardputer whose microphone
+  clock runs a little slow or fast (the original Cardputer's report looked
+  like this) used to drain or overfill the buffer, with a gap every so often
+  and a creeping delay. Playback now adjusts its speed by up to 3 % to match,
+  which also puts the pitch right, and the buffer stays at its target: a
+  0.6 % slow clock that underran twice in 40 s now runs with none. `cardmic
+  run` shows the measured difference as `clock ±x.xx%`.
 - **Windows: a blocked microphone says so.** With a microphone privacy switch
   off (for the device, the user, or desktop apps), the app shows
   "Microphone access is off" and opens that Settings page, instead of

@@ -262,8 +262,14 @@ fn run(args: &[String]) -> Result<(), String> {
         if matches!(st.link, Link::Connected { .. }) {
             let auth = if st.auth_failures > 0 { format!(" · auth failures {}", st.auth_failures) } else { String::new() };
             print!(
-                "\r  {} pkts · buffer {:>4.0}/{:.0} ms · concealed {} · resyncs {} · underruns {}{auth}   ",
-                st.packets, st.buffered_ms, st.target_ms, st.concealed, st.resyncs, st.underruns
+                "\r  {} pkts · buffer {:>4.0}/{:.0} ms · concealed {} · resyncs {} · underruns {} · clock {:+.2}%{auth}   ",
+                st.packets,
+                st.buffered_ms,
+                st.target_ms,
+                st.concealed,
+                st.resyncs,
+                st.underruns,
+                st.clock_offset * 100.0
             );
             let _ = io::stdout().flush();
         }

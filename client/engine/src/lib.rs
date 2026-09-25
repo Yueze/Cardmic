@@ -7,6 +7,7 @@
 //! conceals losses and plays the audio. Callers watch it through
 //! [`Engine::status`] and an event callback, and stop it by dropping it.
 
+pub mod drift;
 pub mod net;
 pub mod output;
 pub mod pairing_store;
@@ -70,6 +71,9 @@ pub struct Status {
     pub level: f32,
     /// What the Cardputer streaming here is called, once it has said.
     pub device_name: Option<String>,
+    /// How far the Cardputer's clock seems to be from this computer's, as a
+    /// fraction (negative: slow). Playback follows it; see `drift`.
+    pub clock_offset: f64,
 }
 
 /// Things worth telling the user about, as they happen.
@@ -146,6 +150,7 @@ impl Engine {
             target_ms: 0.0,
             level: 0.0,
             device_name: None,
+            clock_offset: 0.0,
         }));
         let spectrum = Arc::new(Mutex::new(spectrum::Spectrum::new()));
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -210,6 +215,7 @@ struct Stream {
     sink: OutputSink,
     queue: Arc<SampleQueue>,
     resampler: Resampler,
+    drift: drift::Drift,
     scratch: Vec<f32>,
 }
 
@@ -218,11 +224,17 @@ impl Stream {
         let sink = OutputSink::open(host, name)?;
         let queue = sink.queue();
         let resampler = Resampler::new(SAMPLE_RATE, sink.sample_rate());
-        Ok(Stream { sink, queue, resampler, scratch: Vec::with_capacity(4096) })
+        Ok(Stream { sink, queue, resampler, drift: drift::Drift::new(), scratch: Vec::with_capacity(4096) })
     }
 
-    /// Resample 16 kHz samples to the device rate and queue them.
+    /// Resample 16 kHz samples to the device rate and queue them, at the
+    /// speed that keeps the queue at its target (see `drift`).
     fn push(&mut self, samples: &[f32]) {
+        let rate = self.sink.sample_rate().max(1) as f64;
+        let (buffered, target, playing) = self.queue.level();
+        let dt = samples.len() as f64 / SAMPLE_RATE as f64;
+        let speed = self.drift.speed(buffered as f64 / rate, target as f64 / rate, dt, playing);
+        self.resampler.set_speed(speed);
         self.scratch.clear();
         self.resampler.process(samples, &mut self.scratch);
         self.queue.push(&self.scratch);
@@ -239,6 +251,7 @@ impl Stream {
     fn resync(&mut self) {
         self.queue.clear();
         self.resampler.reset();
+        self.drift.restart();
     }
 }
 
@@ -474,6 +487,7 @@ impl Receiver {
                 st.buffered_ms = buffered_ms;
                 st.target_ms = target_ms;
                 st.underruns = underruns;
+                st.clock_offset = self.stream.drift.estimate();
                 st.level = if receiving { peak } else { 0.0 };
                 peak = 0.0;
             }

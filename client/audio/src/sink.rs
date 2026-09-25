@@ -136,6 +136,13 @@ impl SampleQueue {
         self.state.lock().unwrap().target
     }
 
+    /// Buffered audio, the target (both in samples), and whether playback is
+    /// running (past its pre-roll), read together.
+    pub fn level(&self) -> (usize, usize, bool) {
+        let s = self.state.lock().unwrap();
+        (s.buf.len(), s.target, s.playing)
+    }
+
     /// Fill `out` (interleaved, `channels` wide) from the queue. Called from
     /// the audio callback; never blocks.
     fn fill(&self, out: &mut [f32], channels: usize) {

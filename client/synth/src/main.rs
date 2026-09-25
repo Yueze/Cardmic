@@ -35,12 +35,13 @@ use cardmic_core::protocol::{
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
 
-const PACKET_INTERVAL: Duration = Duration::from_millis(20);
 
 struct Config {
     port: u16,
     keys: Option<Keys>,
     tone_hz: f32,
+    /// Samples it really produces per second, for a device whose clock is off.
+    rate_hz: f64,
     loss_pct: u32,
     name: String,
     legacy: bool,
@@ -70,7 +71,8 @@ const NAME_EVERY: Duration = Duration::from_secs(2);
 
 fn parse_args() -> Result<Config, String> {
     let mut cfg =
-        Config { port: 41235, keys: None, tone_hz: 440.0, loss_pct: 0, name: "Cardmic-Synth".into(), legacy: false,
+        Config { port: 41235, keys: None, tone_hz: 440.0,
+        rate_hz: SAMPLE_RATE as f64, loss_pct: 0, name: "Cardmic-Synth".into(), legacy: false,
         ip: std::net::Ipv4Addr::LOCALHOST };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -82,6 +84,7 @@ fn parse_args() -> Result<Config, String> {
                 cfg.keys = Some(Keys::derive(&code));
             }
             "--tone" => cfg.tone_hz = value("--tone")?.parse().map_err(|e| format!("--tone: {e}"))?,
+            "--rate" => cfg.rate_hz = value("--rate")?.parse().map_err(|e| format!("--rate: {e}"))?,
             "--name" => cfg.name = value("--name")?,
             "--legacy" => cfg.legacy = true,
             "--ip" => cfg.ip = value("--ip")?.parse().map_err(|e| format!("--ip: {e}"))?,
@@ -156,6 +159,9 @@ fn main() {
     let mut last_discovery = Instant::now();
     let mut name_told: Option<Instant> = None;
     let mut next_packet = Instant::now();
+    // 20 ms of audio per packet at 16 kHz; a device with a slow or fast clock
+    // (--rate) sends them further apart or closer together.
+    let packet_interval = Duration::from_secs_f64(SAMPLES_PER_PACKET as f64 / cfg.rate_hz);
     let mut sequence: u32 = 0;
     let mut session: u32 = 0;
     let mut phase: f32 = 0.0;
@@ -272,10 +278,10 @@ fn main() {
         if Instant::now() < next_packet {
             continue;
         }
-        next_packet += PACKET_INTERVAL;
+        next_packet += packet_interval;
         // If we fell far behind (e.g. the process was suspended), do not burst.
-        if Instant::now() > next_packet + PACKET_INTERVAL * 4 {
-            next_packet = Instant::now() + PACKET_INTERVAL;
+        if Instant::now() > next_packet + packet_interval * 4 {
+            next_packet = Instant::now() + packet_interval;
         }
 
         let samples: Vec<i16> = (0..SAMPLES_PER_PACKET)
