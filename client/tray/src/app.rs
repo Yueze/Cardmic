@@ -553,6 +553,15 @@ impl App {
             }
             UserEvent::Devices(d) => {
                 let loopbacks_changed = d.loopbacks != self.devices.loopbacks;
+                // What a bug report needs: which microphone was found over
+                // USB, and what the Cardputer said it is called.
+                let seen = |d: &Devices| (d.usb_mic.clone(), d.usb_identity.as_ref().map(|i| i.name.clone()));
+                if seen(&d) != seen(&self.devices) {
+                    match seen(&d) {
+                        (Some(mic), name) => log(&format!("USB microphone {mic:?} ({})", name.as_deref().unwrap_or("no identity"))),
+                        (None, _) => log("no USB microphone"),
+                    }
+                }
                 // Plugged in with pairing on: take the Cardputer's code, so
                 // Wi-Fi works (encrypted) once the cable is out.
                 if let Some(code) = d.usb_identity.as_ref().and_then(|id| id.code.clone()) {
