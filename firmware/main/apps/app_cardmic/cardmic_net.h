@@ -51,6 +51,10 @@ bool cardmic_net_encrypted(void);
 // Require pairing (keys from cardmic_pair_derive) or not. Ends any session.
 void cardmic_net_set_pairing(bool required, const uint8_t enc_key[16], const uint8_t mac_key[16]);
 
+// Pairing is about to change (keys being derived): stream to nobody until
+// cardmic_net_set_pairing says what it is. Also the state before the first call.
+void cardmic_net_pairing_pending(void);
+
 // Milliseconds since an unpaired computer asked for audio and was refused
 // (UINT32_MAX if never), for a hint on screen.
 uint32_t cardmic_net_ms_since_unpaired(void);

@@ -26,6 +26,10 @@
   sender that has not answered (a recording, or an app from before 0.7.0)
   gets the stream only while no answering computer wants it, and is never
   told the device's name. Older apps and older firmware keep working.
+- **No unencrypted first second.** With pairing on, Cardmic prepares its
+  keys for a moment after it opens; until then it could send its first audio,
+  and its name, unencrypted to a computer already asking. It now sends
+  nothing until the keys are ready. (0.6 did this too.)
 - **Fewer "stopped sending" drops over Wi-Fi.** The app kept the stream alive
   with broadcast packets only; Wi-Fi sends broadcasts once, unacknowledged,
   and often late to a device saving power, so a few lost in a row made the

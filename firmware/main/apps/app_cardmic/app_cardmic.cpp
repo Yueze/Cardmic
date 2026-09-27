@@ -590,6 +590,9 @@ void pair_apply()
         cardmic_net_set_pairing(false, nullptr, nullptr);
         return;
     }
+    // Nothing goes out until the keys are ready; if the task cannot start,
+    // nothing goes out at all rather than unencrypted.
+    cardmic_net_pairing_pending();
     s_pair_busy = true;
     if (xTaskCreate(pair_apply_task, "cardmic_pair", 6144, nullptr, 3, nullptr) != pdPASS) s_pair_busy = false;
 }

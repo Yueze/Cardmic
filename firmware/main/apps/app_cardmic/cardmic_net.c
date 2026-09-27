@@ -64,14 +64,16 @@ typedef struct __attribute__((packed)) {
     uint8_t ciphertext[FRAME_SAMPLES * 2];
 } packet2_t;
 
-// Pairing state, set from the UI task and picked up by the net task.
+// Pairing state, set from the UI task and picked up by the net task. Until
+// it is set, and while its keys are being derived, it is pending.
 static portMUX_TYPE s_pair_lock = portMUX_INITIALIZER_UNLOCKED;
 static struct {
     bool required;
+    bool pending;
     uint8_t enc_key[16];
     uint8_t mac_key[16];
     uint32_t generation;
-} s_pair;
+} s_pair = {.pending = true};
 static volatile uint32_t s_unpaired_at;  // tick of the last discovery refused for lack of pairing
 
 // The Cardputer's name, told to the computer it streams to (see PROTOCOL.md).
@@ -294,8 +296,9 @@ static void net_task(void *arg)
     (void)arg;
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
-    uint32_t pair_generation = 0;
+    uint32_t pair_generation = UINT32_MAX;  // picks up the state on the first pass
     bool pair_required = false;
+    bool pair_pending = true;
     uint8_t mac_key[16] = {0};
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (sock < 0) {
@@ -342,6 +345,7 @@ static void net_task(void *arg)
             taskENTER_CRITICAL(&s_pair_lock);
             pair_generation = s_pair.generation;
             pair_required = s_pair.required;
+            pair_pending = s_pair.pending;
             memcpy(enc_key, s_pair.enc_key, 16);
             memcpy(mac_key, s_pair.mac_key, 16);
             taskEXIT_CRITICAL(&s_pair_lock);
@@ -366,6 +370,10 @@ static void net_task(void *arg)
             continue;
         }
 #endif
+        // Until pairing is known (deriving its keys takes a moment after the
+        // app opens, and Wi-Fi may already be up), answer nobody: the first
+        // second would otherwise go out unencrypted, name included.
+        if (pair_pending) n = 0;
         bool session_encrypted = false;
         discovery_t discovery = DISCOVERY_NONE;
         // Screenshots show whatever is on screen; not while pairing is on. Say
@@ -581,8 +589,17 @@ void cardmic_net_set_pairing(bool required, const uint8_t enc_key[16], const uin
 {
     taskENTER_CRITICAL(&s_pair_lock);
     s_pair.required = required;
+    s_pair.pending = false;
     if (enc_key) memcpy(s_pair.enc_key, enc_key, 16);
     if (mac_key) memcpy(s_pair.mac_key, mac_key, 16);
+    s_pair.generation++;
+    taskEXIT_CRITICAL(&s_pair_lock);
+}
+
+void cardmic_net_pairing_pending(void)
+{
+    taskENTER_CRITICAL(&s_pair_lock);
+    s_pair.pending = true;
     s_pair.generation++;
     taskEXIT_CRITICAL(&s_pair_lock);
 }
