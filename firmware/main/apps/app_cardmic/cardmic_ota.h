@@ -1,9 +1,11 @@
 /*
  * Cardmic over-the-air updates from GitHub Releases.
  *
- * The "cardmic-ota.bin" asset of the latest GitHub release is fetched through
- * github.com/<repo>/releases/latest/download/, which always redirects to the
- * newest release. The version is read from the image header itself (the first
+ * The "cardmic-ota.bin" asset of the latest GitHub release is fetched from the
+ * project's GitHub Pages site first, which publishes it with each release and
+ * stays reachable where GitHub's release downloads stall (they did from China
+ * in 0.7.0), then through github.com/<repo>/releases/latest/download/, which
+ * always redirects to the newest release. The version is read from the image header itself (the first
  * few hundred bytes), so there is no API call and no JSON to parse. A newer
  * image is written to the idle OTA slot; if it fails to boot, the bootloader
  * rolls back to the previous one.
@@ -20,6 +22,7 @@ extern "C" {
 
 #define CARDMIC_OTA_REPO "Yueze/Cardmic"
 #define CARDMIC_OTA_ASSET "cardmic-ota.bin"
+#define CARDMIC_OTA_MIRROR "https://yueze.github.io/Cardmic/"
 
 typedef enum {
     CARDMIC_OTA_IDLE = 0,

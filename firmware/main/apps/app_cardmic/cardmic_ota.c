@@ -15,10 +15,15 @@
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define OTA_URL "https://github.com/" CARDMIC_OTA_REPO "/releases/latest/download/" CARDMIC_OTA_ASSET
+// Tried in order: the Pages copy, then GitHub Releases (see cardmic_ota.h).
+static const char *const OTA_URLS[] = {
+    CARDMIC_OTA_MIRROR CARDMIC_OTA_ASSET,
+    "https://github.com/" CARDMIC_OTA_REPO "/releases/latest/download/" CARDMIC_OTA_ASSET,
+};
 
 static const char *TAG = "cardmic_ota";
 
@@ -60,11 +65,11 @@ static esp_err_t http_event(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-// Opens the download and reads the image header. On ESP_OK the caller owns *out.
-static esp_err_t open_latest(esp_https_ota_handle_t *out, esp_app_desc_t *desc)
+// Opens the download at `url` and reads the image header. On ESP_OK the
+// caller owns *out.
+static esp_err_t open_at(const char *url, esp_https_ota_handle_t *out, esp_app_desc_t *desc)
 {
     static esp_http_client_config_t http = {
-        .url = OTA_URL,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 15000,
         .buffer_size = 4096,     // GitHub's redirect responses carry large headers
@@ -73,6 +78,7 @@ static esp_err_t open_latest(esp_https_ota_handle_t *out, esp_app_desc_t *desc)
         .keep_alive_enable = true,
         .event_handler = http_event,
     };
+    http.url = url;
     s_http_status = 0;
     esp_https_ota_config_t ota = {.http_config = &http, .http_client_init_cb = http_init};
     esp_err_t err = esp_https_ota_begin(&ota, out);
@@ -84,6 +90,21 @@ static esp_err_t open_latest(esp_https_ota_handle_t *out, esp_app_desc_t *desc)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "image header: %s", esp_err_to_name(err));
         esp_https_ota_abort(*out);
+    }
+    return err;
+}
+
+// Opens the first source that answers with an image. s_http_status is the
+// last one's, so "404 everywhere" still reads as nothing to install.
+static esp_err_t open_latest(esp_https_ota_handle_t *out, esp_app_desc_t *desc)
+{
+    esp_err_t err = ESP_FAIL;
+    for (size_t i = 0; i < sizeof(OTA_URLS) / sizeof(OTA_URLS[0]); i++) {
+        err = open_at(OTA_URLS[i], out, desc);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "image from %s", OTA_URLS[i]);
+            return ESP_OK;
+        }
     }
     return err;
 }
@@ -120,6 +141,11 @@ static void ota_task(void *arg)
     }
 
     s_state = CARDMIC_OTA_DOWNLOADING;
+    // Wi-Fi power saving holds incoming packets at the access point between
+    // wake-ups, which slows a download to a crawl. Off until it is done.
+    wifi_ps_type_t ps = WIFI_PS_MIN_MODEM;
+    esp_wifi_get_ps(&ps);
+    esp_wifi_set_ps(WIFI_PS_NONE);
     esp_err_t err;
     while ((err = esp_https_ota_perform(h)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
         int total = esp_https_ota_get_image_size(h);
@@ -128,11 +154,13 @@ static void ota_task(void *arg)
     }
     if (err != ESP_OK || !esp_https_ota_is_complete_data_received(h)) {
         esp_https_ota_abort(h);
+        esp_wifi_set_ps(ps);
         fail("DOWNLOAD INTERRUPTED");
         vTaskDelete(NULL);
         return;
     }
     if (esp_https_ota_finish(h) != ESP_OK) {
+        esp_wifi_set_ps(ps);
         fail("IMAGE CHECK FAILED");
         vTaskDelete(NULL);
         return;

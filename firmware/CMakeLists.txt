@@ -31,5 +31,10 @@ if(CARDMIC_DEV)
 endif()
 
 # Single source of the firmware version (shown in About, compared by OTA).
-set(PROJECT_VER "0.7.0")
+set(PROJECT_VER "0.7.1")
+# A development build can pose as an older version, to try an update over
+# Wi-Fi: -DCARDMIC_DEV_VER=0.7.0-test
+if(CARDMIC_DEV AND CARDMIC_DEV_VER)
+    set(PROJECT_VER "${CARDMIC_DEV_VER}")
+endif()
 project(cardputer-adv)

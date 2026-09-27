@@ -362,7 +362,8 @@ void audio_task(void*)
             memset(frame, 0, sizeof(frame));
         }
         cardmic_usb_write(frame, CARDMIC_SAMPLES_PER_MS);
-        cardmic_net_push(frame, CARDMIC_SAMPLES_PER_MS);
+        // While an update downloads, Wi-Fi airtime goes to the download.
+        if (cardmic_ota_state() != CARDMIC_OTA_DOWNLOADING) cardmic_net_push(frame, CARDMIC_SAMPLES_PER_MS);
     }
     s_audio_task = nullptr;
     vTaskDelete(nullptr);
@@ -534,8 +535,12 @@ void stop_audio()
 void pair_apply_task(void*)
 {
     uint8_t enc[16], mac[16];
-    bool ok = cardmic_pair_derive(s_pair_code, enc, mac);
-    cardmic_net_set_pairing(s_pair_required && ok, enc, mac);
+    // If the keys cannot be made, stay pending (send nothing), never unencrypted.
+    if (cardmic_pair_derive(s_pair_code, enc, mac)) {
+        cardmic_net_set_pairing(s_pair_required, enc, mac);
+    } else {
+        mclog::tagError("Cardmic", "pairing keys failed: sending nothing");
+    }
     memset(enc, 0, sizeof(enc));
     memset(mac, 0, sizeof(mac));
     s_pair_busy = false;
