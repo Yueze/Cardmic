@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.1 — 2026-09-27
+
+Updates over Wi-Fi that finish, and faster. The app is unchanged apart from
+its version.
+
+- **Updates come from the project's GitHub Pages site first**, with GitHub
+  Releases as the fallback. On some networks (seen from China) GitHub's
+  release downloads stall, so an update crawled or failed.
+- **An update gets the memory it needs.** Inside Cardmic the Cardputer has
+  about 50 KB of memory to spare, and the secure connection alone needs one
+  16 KB block. While an update downloads, Cardmic now stops the spectrogram,
+  the microphone and the Wi-Fi stream (they come back if the update fails),
+  turns Wi-Fi power saving off, and keeps twice as much data in flight (a TCP
+  window of 8 segments instead of 4). On an ADV, the 2.9 MB update that took
+  236 s now takes 86 s.
+- This helps from the next update on: the running firmware does the
+  downloading, so the update to 0.7.1 itself still goes the old way.
+- **Pairing fails closed.** If the pairing keys cannot be made, the Cardputer
+  sends nothing rather than streaming unencrypted.
+
 ## 0.7.0 — 2026-09-27
 
 Private by default, a name for each Cardputer, and a steadier stream. Update

@@ -120,6 +120,8 @@ volatile uint32_t s_ring_w = 0;
 // Spectrogram: a sprite that scrolls one column left per frame.
 constexpr int SPEC_W = 200, SPEC_H = 62, SPEC_X = 2, SPEC_Y = 14;
 LGFX_Sprite* s_spec = nullptr;
+void spec_free();
+bool s_paused_for_update = false;  // audio and Wi-Fi streaming stopped for an update
 float s_nf[SPEC_H];      // per-band noise floor, dB
 bool s_nf_ready = false;
 
@@ -740,8 +742,18 @@ void handle_key(const Keyboard::KeyEvent_t& e)
 
         case Page::About:
             if (e.keyCode != KEY_ENTER) break;
-            if (cardmic_ota_state() == CARDMIC_OTA_AVAILABLE) cardmic_ota_install();
-            else if (GetHAL().isWifiConnected()) cardmic_ota_check();
+            if (cardmic_ota_state() == CARDMIC_OTA_AVAILABLE) {
+                // The download needs the memory: TLS takes a 16 KB block, and
+                // every KB left over lets more of it be in flight at once.
+                spec_free();
+                stop_audio();
+                cardmic_net_stop();
+                s_paused_for_update = true;
+                cardmic_ota_install();
+            } else if (GetHAL().isWifiConnected()) {
+                spec_free();
+                cardmic_ota_check();
+            }
             break;
 
         case Page::List: {
@@ -1070,8 +1082,40 @@ void spectrogram_step(bool live, bool muted)
     }
 }
 
+// The spectrogram's sprite is the app's largest block of memory (25 KB). An
+// update needs it for TLS, so it goes while one runs and comes back after.
+void spec_create()
+{
+    if (s_spec) return;
+    s_spec = new LGFX_Sprite(&GetHAL().canvas);
+    s_spec->setColorDepth(16);
+    if (!s_spec->createSprite(SPEC_W, SPEC_H)) {
+        delete s_spec;
+        s_spec = nullptr;
+        return;
+    }
+    s_spec->fillScreen(TFT_BLACK);
+    s_col_pos  = s_ring_w;
+    s_nf_ready = false;
+}
+
+void spec_free()
+{
+    if (!s_spec) return;
+    s_spec->deleteSprite();
+    delete s_spec;
+    s_spec = nullptr;
+}
+
+bool ota_busy()
+{
+    const cardmic_ota_state_t st = cardmic_ota_state();
+    return st == CARDMIC_OTA_CHECKING || st == CARDMIC_OTA_DOWNLOADING || st == CARDMIC_OTA_DONE;
+}
+
 void draw_spectrogram(bool live, bool muted)
 {
+    if (!s_spec && !ota_busy()) spec_create();
     if (!s_spec) return;
     spectrogram_step(live, muted);
     s_spec->pushSprite(&C(), SPEC_X, SPEC_Y);
@@ -1609,15 +1653,8 @@ void AppCardmic::onOpen()
         start_autoconnect();
     }
 
-    if (!s_spec) {
-        s_spec = new LGFX_Sprite(&GetHAL().canvas);
-        s_spec->setColorDepth(16);
-        if (!s_spec->createSprite(SPEC_W, SPEC_H)) {
-            delete s_spec;
-            s_spec = nullptr;
-            mclog::tagError(getAppInfo().name, "no memory for spectrogram");
-        }
-    }
+    spec_create();
+    if (!s_spec) mclog::tagError(getAppInfo().name, "no memory for spectrogram");
     if (s_spec) s_spec->fillScreen(TFT_BLACK);
     s_meter = s_peak_hold = 0.0f;
     s_col_pos = s_ring_w;
@@ -1633,6 +1670,12 @@ void AppCardmic::onOpen()
 void AppCardmic::onRunning()
 {
     sync_wifi_state();
+    // An update that failed gives back what it stopped (see Page::About).
+    if (s_paused_for_update && cardmic_ota_state() == CARDMIC_OTA_FAILED) {
+        s_paused_for_update = false;
+        start_audio();
+        if (GetHAL().isWifiConnected()) cardmic_net_start();
+    }
 #ifdef CARDMIC_DEV_TOOLS
     dev_poll();
 #endif

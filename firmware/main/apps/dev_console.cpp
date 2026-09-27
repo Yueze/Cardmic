@@ -135,7 +135,8 @@ void run_command(const std::string& cmd)
               " wifi=" + (GetHAL().isWifiConnected() ? "up" : "down") + " ip=" + ip +
               " ssid=" + GetHAL().getSettings().GetString("wifi_ssid", "") +
               " password=" + std::to_string(GetHAL().getSettings().GetString("wifi_password", "").size()) + "chars" +
-              " heap=" + std::to_string(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+              " heap=" + std::to_string(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) +
+              " largest=" + std::to_string(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
     } else if (cmd == "reboot") {
         reply("OK");
         vTaskDelay(pdMS_TO_TICKS(100));

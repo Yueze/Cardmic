@@ -26,8 +26,8 @@ CONFIG_ESPNOW_CONTROL_AUTO_CHANNEL_FORWARD=y
 CONFIG_TINYUSB_HID_COUNT=1
 # Cardmic: roll back an OTA image that fails to boot.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
-# Cardmic: a TCP window that fills a long path. With the default four
-# segments, an update from GitHub crawls at a few tens of KB/s from far away.
-CONFIG_LWIP_TCP_WND_DEFAULT=32768
-CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
-CONFIG_ESP_WIFI_RX_BA_WIN=16
+# Cardmic: a TCP window of 8 segments, twice the default: a download over a
+# long path runs at about window / round trip. More would crowd out TLS
+# during an update, which runs inside the app with ~35 KB to spare.
+CONFIG_LWIP_TCP_WND_DEFAULT=11680
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=12
