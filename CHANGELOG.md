@@ -8,15 +8,19 @@ both the firmware and the app; either one alone keeps working with the other.
 - **Pairing is on out of the box.** A new Cardputer sends audio only to
   computers that know its code, encrypted: plug it in once and the app takes
   the code, or type it. A Cardputer that ran Cardmic 0.6 with pairing never
-  turned on keeps it off, so an update does not cut off the computers it
-  streams to.
+  turned on keeps it off when updated over Wi-Fi (Settings > About), so the
+  update does not cut off the computers it streams to. Coming from 0.5, or
+  flashed fresh (browser installer or full image, which erase the settings),
+  pairing comes on with a new code.
 - **Settings > Name.** Give the Cardputer a name (up to 16 characters). The
-  Cardmic app shows it over Wi-Fi at once; over USB, computers list the
+  Cardmic app shows it over Wi-Fi at once; over USB, a Mac lists the
   microphone under it, and the app shows it, from the next time Cardmic
-  opens. Two Cardputers are easy to tell apart. Unnamed, it stays Cardmic-XXXX in the app and
-  Cardmic Microphone over USB.
+  opens (Windows may keep the name it first saw). Two Cardputers are easy to
+  tell apart. Unnamed, it stays Cardmic-XXXX in the app and Cardmic
+  Microphone over USB. Apps before 0.7.0 do not recognise a renamed
+  Cardputer over USB; Wi-Fi works with them as before.
 - **App: a renamed Cardputer is still found** over USB, by the name it
-  reports, on macOS and Windows.
+  reports (tested on macOS).
 - **Hold to talk guide:** a new talk key applies when Cardmic opens again,
   as the device says; the guide said at once.
 - **Protocol:** the device tells its receiver its name, `CARDMIC_NAME <name>`
@@ -30,9 +34,9 @@ both the firmware and the app; either one alone keeps working with the other.
   gets the stream only while no answering computer wants it, and is never
   told the device's name. Older apps and older firmware keep working.
 - **No unencrypted first second.** With pairing on, Cardmic prepares its
-  keys for a moment after it opens; until then it could send its first audio,
-  and its name, unencrypted to a computer already asking. It now sends
-  nothing until the keys are ready. (0.6 did this too.)
+  keys for a moment after it opens; until then 0.6 could send its first
+  audio unencrypted to a computer already asking. It now sends nothing until
+  the keys are ready.
 - **Fewer "stopped sending" drops over Wi-Fi.** The app kept the stream alive
   with broadcast packets only; Wi-Fi sends broadcasts once, unacknowledged,
   and often late to a device saving power, so a few lost in a row made the
@@ -40,17 +44,18 @@ both the firmware and the app; either one alone keeps working with the other.
   to the Cardputer, which Wi-Fi acknowledges and retries.
 - **Always the freshest audio.** When the link falls behind, the Cardputer
   drops its oldest queued audio instead of the newest.
-- **Playback follows the Cardputer's clock.** A Cardputer whose microphone
+- **Over Wi-Fi, playback follows the Cardputer's clock.** A Cardputer whose microphone
   clock runs a little slow or fast (the original Cardputer's report looked
   like this) used to drain or overfill the buffer, with a gap every so often
   and a creeping delay. Playback now adjusts its speed by up to 3 % to match,
   which also puts the pitch right, and the buffer stays at its target: a
   0.6 % slow clock that underran twice in 40 s now runs with none. `cardmic
-  run` shows the measured difference as `clock ±x.xx%`.
-- **Windows: a blocked microphone says so.** With a microphone privacy switch
-  off (for the device, the user, or desktop apps), the app shows
-  "Microphone access is off" and opens that Settings page, instead of
-  reporting that no virtual device works.
+  run` shows the app's estimate as `clock ±x.xx%`. (Over USB, apps take the
+  microphone directly and Cardmic is not in the path.)
+- **Windows: a blocked microphone says so.** When the app tests virtual
+  audio devices and a microphone privacy switch is off (for the device, the
+  user, or desktop apps), it shows "Microphone access is off" with a button
+  to that Settings page, instead of reporting that no virtual device works.
 - **App:** downloads of versions already installed are cleared at start;
   `Cardmic --diagnose` prints in the Windows console it was started from; the
   installer names its publisher The Cardmic Authors.
