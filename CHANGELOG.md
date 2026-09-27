@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-09-27
+
+Private by default, a name for each Cardputer, and a steadier stream. Update
+both the firmware and the app; either one alone keeps working with the other.
 
 - **Pairing is on out of the box.** A new Cardputer sends audio only to
   computers that know its code, encrypted: plug it in once and the app takes
